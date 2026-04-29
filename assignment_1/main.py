@@ -15,7 +15,7 @@ from typing import Any
 
 import handle_output
 
-from cat_dog_dataset import CatDogDataset
+from timeseries_dataset import TimeseriesDataset
 from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
@@ -52,7 +52,7 @@ def _process_job(
     ####################################################################
     #                          Load the data.                          #
     ####################################################################
-    dataset = CatDogDataset(
+    dataset = TimeseriesDataset(
         img_dir=CONFIG["general"]["data_images_path"], 
         ann_dir=CONFIG["general"]["data_annotations_path"], 
         input_img_size=job["input_image_size"],
