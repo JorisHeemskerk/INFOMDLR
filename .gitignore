@@ -222,3 +222,21 @@ __marimo__/
 !*/report/*.png
 !*/report/*.tex
 !*/report/*.pdf
+
+
+# Custom
+*/data/*
+output/*
+*.jpg
+*.jpeg
+*.png
+*.npy
+*.xml
+*.avi
+*.mp4
+*.pth
+output/*/
+*.yml
+!*/data/.gitkeep
+
+.vscode/

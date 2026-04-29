@@ -1,0 +1,12 @@
+numpy==2.4.2
+opencv-python==4.13.0.92
+tqdm==4.67.3
+matplotlib==3.10.8
+scikit-learn==1.8.0
+torch==2.10.0+cu130
+torchvision==0.25.0+cu130
+pytz==2026.1.post1
+PyYAML==6.0.3
+jsonschema==4.26.0
+plum==2.8.0
+ffmpeg-python==0.2.0
