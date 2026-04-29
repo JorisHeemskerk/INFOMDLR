@@ -1,3 +1,9 @@
+"""
+DISCLAIMER: 
+This code was previously part of Joris Heemskerk's & Bas de Blok's prior
+work for the Computer Vision course, and is being re-used here.
+"""
+
 class EarlyStopper:
     """
     Class used to indicate when to stop training early.

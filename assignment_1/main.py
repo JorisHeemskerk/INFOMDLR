@@ -1,3 +1,9 @@
+"""
+DISCLAIMER: 
+This code was previously part of Joris Heemskerk's & Bas de Blok's prior
+work for the Computer Vision course, and is being re-used here.
+"""
+
 import argparse
 import logging
 import numpy as np
@@ -21,10 +27,9 @@ from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
 from early_stopper import EarlyStopper
 from train import train, predict_epoch, train_cross_validation, compute_epoch_map
-from visualise import visualise_batch, visualise_training
+from visualise import visualise_training
 from yolov1_base import YOLOv1Base
 from yolov1_resnet import YOLOv1ResNet
-from yolov1_loss import YOLOv1Loss
 
 
 def _process_job(
@@ -53,75 +58,43 @@ def _process_job(
     #                          Load the data.                          #
     ####################################################################
     dataset = TimeseriesDataset(
-        img_dir=CONFIG["general"]["data_images_path"], 
-        ann_dir=CONFIG["general"]["data_annotations_path"], 
-        input_img_size=job["input_image_size"],
-        grid_size=CONFIG["general"]["grid_size"],
-        logger=logger,
-        transform=transforms.Compose([
-            transforms.Resize((
-                job["input_image_size"],
-                job["input_image_size"]
-            )),
-            transforms.ToTensor(),
-            # These numbers are from ImageNet, for normalisation.
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],   
-                std=[0.229, 0.224, 0.225]
-            )
-        ]),
+        source="assignment_1/Xtrain.mat",
+        window_size=5,
+        horizon=1,
+        stride=1,
     )
 
     ####################################################################
     #                      Create the DataLoaders.                     #
     ####################################################################
     logger.debug(f"Splitting the dataset into {job["train_val_test_split"]}.")
-    labels = dataset._labels
     indices = list(range(len(dataset)))
     
     ################## Split in a stratisfied manner. ##################
-    train_idx, val_test_idx, _, val_test_labels = train_test_split(
+    train_idx, val_idx = train_test_split(
         indices, 
-        labels,
         test_size= \
             job["train_val_test_split"][1] + job["train_val_test_split"][2],
-        stratify=labels,
-        random_state=42
-    )
-    val_idx, test_idx = train_test_split(
-        val_test_idx,
-        test_size=job["train_val_test_split"][2] / (
-            job["train_val_test_split"][1] + job["train_val_test_split"][2]
-        ),
-        stratify=val_test_labels,
         random_state=42
     )
     train_dataset = torch.utils.data.Subset(dataset, train_idx)
     val_dataset = torch.utils.data.Subset(dataset, val_idx)
-    test_dataset = torch.utils.data.Subset(dataset, test_idx)
     logger.debug(
-        f"{len(train_dataset)= }, {len(val_dataset)= }, {len(test_dataset)= }"
+        f"{len(train_dataset)= }, {len(val_dataset)= }"
     )
 
     ########## Convert DataSet objects to DataLoader objects. ##########
-    train_dataloader, val_dataloader, test_dataloader = to_dataloaders(
-        [train_dataset, val_dataset, test_dataset], 
-        batch_sizes=[job["batch_size"]] * 3, 
-        shuffles=[True, True, False],
+    train_dataloader, val_dataloader = to_dataloaders(
+        [train_dataset, val_dataset], 
+        batch_sizes=[job["batch_size"]] * 2, 
+        shuffles=[True, False],
         logger=logger,
         num_workers=CONFIG["general"]["num_data_workers"],
         pin_memory=True,
         persistent_workers=True
         # collate_fn=lambda x: tuple(zip(*x)) # TODO: why is this needed????????????
     )
-
-    ###### Save quick example of the training dataloader to file. ######
-    logger.debug("Visualising the first batch of the train dataloader.")
-    visualise_batch(
-        train_dataloader, 
-        job["plotting_conf_threshold"], 
-        f"{handle_output.OUTPUT_DIR}train_batch_1_true.png"
-    )
+    exit() # TODO: remove
 
     ####################################################################
     #                     Load the (correct) model.                    #
@@ -178,7 +151,7 @@ def _process_job(
         patience=10, 
         factor=0.5
     )
-    LOSS_FN = YOLOv1Loss(job["lambda_coord"], job["lambda_noobj"])
+    LOSS_FN = None
     EARLY_STOPPER = EarlyStopper(15, 0.01)
 
     # Arguments used by both normal training and cross_validation
@@ -396,7 +369,7 @@ if __name__ == "__main__":
         '--config', 
         dest='config_file_path', 
         type=str, 
-        default="assignment_4/config/config.yaml", 
+        default="assignment_1/config/config.yaml", 
         help="Path to config file. (default: %(default)s)"
     )
     args = parser.parse_args()
@@ -404,7 +377,7 @@ if __name__ == "__main__":
     # Initialise Logger.
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     logger = create_logger(
-        name="Computer Vision - Assignment 4", 
+        name="Deep Learning - Assignment 1", 
         output_log_file_name=f"{handle_output.OUTPUT_DIR}process.log"
     )
     logger.info(f"Provided commandline arguments: {args.__dict__}")
