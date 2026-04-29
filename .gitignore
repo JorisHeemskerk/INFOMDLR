@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# LaTeX report files
+*/report/*
+!*/report/*.png
+!*/report/*.tex
+!*/report/*.pdf
