@@ -1,3 +1,9 @@
+"""
+DISCLAIMER: 
+This code was previously part of Joris Heemskerk's & Bas de Blok's prior
+work for the Computer Vision course, and is being re-used here.
+"""
+
 import copy
 import logging
 import numpy as np
@@ -8,11 +14,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from typing import Callable
 from tqdm import tqdm
 
-import handle_output
-
 from early_stopper import EarlyStopper
-from mean_average_precision import calculate_map
-from visualise import visualise_batch
 
 
 def _pad_to_longest(arrays: list[list[float]]) -> np.ndarray:
@@ -387,15 +389,15 @@ def train_epoch(
         train_losses["conf_noobj"] += loss_conf_noobj.item()
         train_losses["cls"] += loss_cls.item()
         
-        for iou_threshold in train_mAPs.keys():
-            train_mAPs[iou_threshold].append(
-                calculate_map(
-                    y_hat, 
-                    y, 
-                    float(iou_threshold), 
-                    conf_threshold
-                ).item()
-            )
+        # for iou_threshold in train_mAPs.keys():
+            # train_mAPs[iou_threshold].append(
+            #     calculate_map(
+            #         y_hat, 
+            #         y, 
+            #         float(iou_threshold), 
+            #         conf_threshold
+            #     ).item()
+            # )
 
         if batch % 100 == 0:
             train_loss, current = loss.item(), batch * len(y) + len(X)
@@ -477,15 +479,15 @@ def val_epoch(
             val_losses["conf_noobj"] += loss_conf_noobj.item()
             val_losses["cls"] += loss_cls.item()
             
-            for iou_threshold in val_mAPs.keys():
-                val_mAPs[iou_threshold].append(
-                    calculate_map(
-                        y_hat, 
-                        y, 
-                        float(iou_threshold), 
-                        conf_threshold
-                    ).item()
-                )
+            # for iou_threshold in val_mAPs.keys():
+                # val_mAPs[iou_threshold].append(
+                #     calculate_map(
+                #         y_hat, 
+                #         y, 
+                #         float(iou_threshold), 
+                #         conf_threshold
+                #     ).item()
+                # )
     avg_losses = {
         key: value / len(dataloader) for key, value in val_losses.items()
     }
@@ -512,8 +514,6 @@ def predict_epoch(
     grid_size: int,
     iou_thresholds: list[float],
     conf_threshold: float,
-    plotting_conf_threshold: float,
-    visualise_first_batch: bool,
     logger: logging.Logger
 ) -> tuple[dict[str, float], dict[str, float]]:
     """
@@ -535,12 +535,6 @@ def predict_epoch(
     :param conf_threshold: Confidence threshold for filtering predictions
         when computing mAP.
     :type conf_threshold: float
-    :param plotting_conf_threshold: Confidence threshold for plotting the
-        first batch, only used if `visualise_first_batch` is True.
-    :type plotting_conf_threshold: float
-    :param visualise_first_batch: True if you want to visualise the
-        first batch of predictions along with the ground truth.
-    :type visualise_first_batch: bool
     :param logger: Logger to log to.
     :type logger: logging.Logger
     :return: Average losses and mAPs over the dataset, each as a dict 
@@ -563,15 +557,6 @@ def predict_epoch(
             X, y = X.to(device), y.to(device)
             y_hat = model(X)
             y_hat = y_hat.view(-1, grid_size, grid_size, 7)
-            if i == 0 and visualise_first_batch == True:
-                visualise_batch(
-                    X, 
-                    y, 
-                    y_hat, 
-                    plotting_conf_threshold,
-                    dataloader.dataset.dataset.classes, 
-                    f"{handle_output.OUTPUT_DIR}predict_batch_1.png"
-                )
 
             loss, (
                 loss_xy, loss_wh, loss_conf_obj, loss_conf_noobj, loss_cls
@@ -584,15 +569,15 @@ def predict_epoch(
             test_losses["conf_noobj"] += loss_conf_noobj.item()
             test_losses["cls"] += loss_cls.item()
             
-            for iou_threshold in test_mAPs.keys():
-                test_mAPs[iou_threshold].append(
-                    calculate_map(
-                        y_hat, 
-                        y, 
-                        float(iou_threshold), 
-                        conf_threshold
-                    ).item()
-                )
+            # for iou_threshold in test_mAPs.keys():
+                # test_mAPs[iou_threshold].append(
+                #     calculate_map(
+                #         y_hat, 
+                #         y, 
+                #         float(iou_threshold), 
+                #         conf_threshold
+                #     ).item()
+                # )
 
     return \
         {key: value / len(dataloader) for key, value in test_losses.items()}, \
@@ -642,12 +627,12 @@ def compute_epoch_map(
     y_all = torch.cat(all_targets, dim=0)
 
     mAPs = {}
-    for threshold in iou_thresholds:
-        mAPs[str(threshold)] = calculate_map(
-            y_hat=y_hat_all,
-            y=y_all,
-            iou_threshold=threshold,
-            conf_threshold=conf_threshold,
-        ).item()
+    # for threshold in iou_thresholds:
+        # mAPs[str(threshold)] = calculate_map(
+        #     y_hat=y_hat_all,
+        #     y=y_all,
+        #     iou_threshold=threshold,
+        #     conf_threshold=conf_threshold,
+        # ).item()
 
     return mAPs

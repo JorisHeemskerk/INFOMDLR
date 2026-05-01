@@ -1,3 +1,9 @@
+"""
+DISCLAIMER: 
+This code was previously part of Joris Heemskerk's & Bas de Blok's prior
+work for the Computer Vision course, and is being re-used here.
+"""
+
 import logging
 import torch.nn as nn
 from torchvision.models import resnet18, ResNet18_Weights
