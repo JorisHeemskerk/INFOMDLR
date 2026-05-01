@@ -20,19 +20,14 @@ modify this code, at the express notion that a disclaimer was put in.
     jobs:
         job0:
             model: _
-            start_from_checkpoint_path: _
-            input_image_size: _
-            train_val_test_split: _
-            batch_size : _
+            input_size: _
+            hidden_size: _
+            num_layers: _
+            optimiser: _
+            train_val_split: _
+            batch_size: _
             n_epochs: _
-            k_folds: _
             learning_rate: _
-            l1_coefficient: _
-            lambda_coord: _
-            lambda_noobj: _
-            iou_thresholds: _
-            conf_threshold: _
-            plotting_conf_threshold: _
     ```
 """
 
@@ -74,18 +69,27 @@ CONFIG_TEMPLATE = {
                         'model': {
                             'type': 'string', 
                         },
-                        'start_from_checkpoint_path': {
-                            'type': 'string', 
-                        },
-                        'input_image_size': {
+                        'input_size': {
                             'type': 'number', 
                             'minimum': 1
                         },
-                        'train_val_test_split': {
+                        'hidden_size': {
                             'type': 'array',
                             'items': {'type': 'number'},
-                            'minItems': 3,
-                            'maxItems': 3
+                            'minItems': 1
+                        },
+                        'num_layers': {
+                            'type': 'number', 
+                            'minimum': 1
+                        },
+                        'optimiser': {
+                            'type': 'string', 
+                        },
+                        'train_val_split': {
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 2,
+                            'maxItems': 2
                         },
                         'batch_size': {
                             'type': 'number', 
@@ -95,42 +99,20 @@ CONFIG_TEMPLATE = {
                             'type': 'number', 
                             'minimum': 1
                         },
-                        'k_folds': {
-                            'type': 'number', 
-                            'minimum': 0,
-                        },
                         'learning_rate': {
-                            'type': 'number'
-                        },
-                        'lambda_coord': {
-                            'type': 'number'
-                        },
-                        'lambda_noobj': {
-                            'type': 'number'
-                        },
-                        'iou_thresholds': {
-                            'type': 'array',
-                            'items': {'type': 'number'},
-                            'minItems': 1,
-                        },
-                        'conf_threshold': {
-                            'type': 'number'
-                        },
-                        'plotting_conf_threshold': {
                             'type': 'number'
                         }
                     },
                     'required': [
-                        'train_val_test_split',
+                        'model',
+                        'input_size',
+                        'hidden_size',
+                        'num_layers',
+                        'optimiser',
+                        'train_val_split',
                         'batch_size',
                         'n_epochs',
-                        'k_folds',
-                        'learning_rate',
-                        'lambda_coord',
-                        'lambda_noobj',
-                        'iou_thresholds',
-                        'conf_threshold',
-                        'plotting_conf_threshold',
+                        'learning_rate'
                     ],
                     'additionalProperties' : False
                 }

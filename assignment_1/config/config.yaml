@@ -9,22 +9,15 @@
 # parameter restrictions.
 
 general:
-    data_images_path : "assignment_4/data/images/"
-    data_annotations_path : "assignment_4/data/annotations/"
-    grid_size: 7
     num_data_workers: 4 # Number of workers preparing batches.
 jobs:
     job0:
-        model: "resnet"
-        start_from_checkpoint_path: None #"assignment_4/models/classification_backbone.pth"
-        input_image_size: 224
-        train_val_test_split : [.72, .18, .1]
-        batch_size : 8
-        n_epochs: 75
-        k_folds: 1
-        learning_rate:  .00001 # 1e-4
-        lambda_coord: 5
-        lambda_noobj: .5
-        iou_thresholds: [.5, .9]
-        conf_threshold: .01
-        plotting_conf_threshold: .5
+        model: "LSTM"
+        input_size: 10
+        hidden_size: [20]
+        num_layers: 2
+        optimiser: "adam"
+        train_val_split: [.8, .2]
+        batch_size: 8
+        n_epochs: 20
+        learning_rate: .0001 # 1e-4

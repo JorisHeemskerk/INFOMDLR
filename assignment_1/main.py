@@ -8,23 +8,21 @@ import traceback
 import yaml
 
 from jsonschema import validate, ValidationError
-from sklearn.model_selection import train_test_split
-from torchvision import transforms
+# from sklearn.model_selection import train_test_split
+# from torchvision import transforms
 from torch.utils.data import ConcatDataset
 from typing import Any
 
 import handle_output
 
-from timeseries_dataset import TimeseriesDataset
+# from timeseries_dataset import TimeseriesDataset
 from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
-from data import to_dataloaders
-from early_stopper import EarlyStopper
-from train import train, predict_epoch, train_cross_validation, compute_epoch_map
-from visualise import visualise_batch, visualise_training
-from yolov1_base import YOLOv1Base
-from yolov1_resnet import YOLOv1ResNet
-from yolov1_loss import YOLOv1Loss
+# from data import to_dataloaders
+# from early_stopper import EarlyStopper
+# from train import train, predict_epoch, train_cross_validation, compute_epoch_map
+# from visualise import visualise_batch, visualise_training
+from LSTM import LSTM
 
 
 def _process_job(
@@ -42,96 +40,97 @@ def _process_job(
     :param logger: Logger to log to.
     :type logger: logging.Logger
     """
-    ############ Change output dir to specific job folder. #############
-    handle_output.OUTPUT_DIR = f"{handle_output.OUTPUT_DIR}job_{job_id}/" if \
-        job_id == 0 else "/".join(
-            handle_output.OUTPUT_DIR.split("/")[:-2]
-        ) + f"/job_{job_id}/"
-    os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
+    # ############ Change output dir to specific job folder. #############
+    # handle_output.OUTPUT_DIR = f"{handle_output.OUTPUT_DIR}job_{job_id}/" if \
+    #     job_id == 0 else "/".join(
+    #         handle_output.OUTPUT_DIR.split("/")[:-2]
+    #     ) + f"/job_{job_id}/"
+    # os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
 
-    ####################################################################
-    #                          Load the data.                          #
-    ####################################################################
-    dataset = TimeseriesDataset(
-        img_dir=CONFIG["general"]["data_images_path"], 
-        ann_dir=CONFIG["general"]["data_annotations_path"], 
-        input_img_size=job["input_image_size"],
-        grid_size=CONFIG["general"]["grid_size"],
-        logger=logger,
-        transform=transforms.Compose([
-            transforms.Resize((
-                job["input_image_size"],
-                job["input_image_size"]
-            )),
-            transforms.ToTensor(),
-            # These numbers are from ImageNet, for normalisation.
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],   
-                std=[0.229, 0.224, 0.225]
-            )
-        ]),
-    )
+    # ####################################################################
+    # #                          Load the data.                          #
+    # ####################################################################
+    # dataset = TimeseriesDataset(
+    #     img_dir=CONFIG["general"]["data_images_path"], 
+    #     ann_dir=CONFIG["general"]["data_annotations_path"], 
+    #     input_img_size=job["input_image_size"],
+    #     grid_size=CONFIG["general"]["grid_size"],
+    #     logger=logger,
+    #     transform=transforms.Compose([
+    #         transforms.Resize((
+    #             job["input_image_size"],
+    #             job["input_image_size"]
+    #         )),
+    #         transforms.ToTensor(),
+    #         # These numbers are from ImageNet, for normalisation.
+    #         transforms.Normalize(
+    #             mean=[0.485, 0.456, 0.406],   
+    #             std=[0.229, 0.224, 0.225]
+    #         )
+    #     ]),
+    # )
 
-    ####################################################################
-    #                      Create the DataLoaders.                     #
-    ####################################################################
-    logger.debug(f"Splitting the dataset into {job["train_val_test_split"]}.")
-    labels = dataset._labels
-    indices = list(range(len(dataset)))
+    # ####################################################################
+    # #                      Create the DataLoaders.                     #
+    # ####################################################################
+    # logger.debug(f"Splitting the dataset into {job["train_val_test_split"]}.")
+    # labels = dataset._labels
+    # indices = list(range(len(dataset)))
     
-    ################## Split in a stratisfied manner. ##################
-    train_idx, val_test_idx, _, val_test_labels = train_test_split(
-        indices, 
-        labels,
-        test_size= \
-            job["train_val_test_split"][1] + job["train_val_test_split"][2],
-        stratify=labels,
-        random_state=42
-    )
-    val_idx, test_idx = train_test_split(
-        val_test_idx,
-        test_size=job["train_val_test_split"][2] / (
-            job["train_val_test_split"][1] + job["train_val_test_split"][2]
-        ),
-        stratify=val_test_labels,
-        random_state=42
-    )
-    train_dataset = torch.utils.data.Subset(dataset, train_idx)
-    val_dataset = torch.utils.data.Subset(dataset, val_idx)
-    test_dataset = torch.utils.data.Subset(dataset, test_idx)
-    logger.debug(
-        f"{len(train_dataset)= }, {len(val_dataset)= }, {len(test_dataset)= }"
-    )
+    # ################## Split in a stratisfied manner. ##################
+    # train_idx, val_test_idx, _, val_test_labels = train_test_split(
+    #     indices, 
+    #     labels,
+    #     test_size= \
+    #         job["train_val_test_split"][1] + job["train_val_test_split"][2],
+    #     stratify=labels,
+    #     random_state=42
+    # )
+    # val_idx, test_idx = train_test_split(
+    #     val_test_idx,
+    #     test_size=job["train_val_test_split"][2] / (
+    #         job["train_val_test_split"][1] + job["train_val_test_split"][2]
+    #     ),
+    #     stratify=val_test_labels,
+    #     random_state=42
+    # )
+    # train_dataset = torch.utils.data.Subset(dataset, train_idx)
+    # val_dataset = torch.utils.data.Subset(dataset, val_idx)
+    # test_dataset = torch.utils.data.Subset(dataset, test_idx)
+    # logger.debug(
+    #     f"{len(train_dataset)= }, {len(val_dataset)= }, {len(test_dataset)= }"
+    # )
 
-    ########## Convert DataSet objects to DataLoader objects. ##########
-    train_dataloader, val_dataloader, test_dataloader = to_dataloaders(
-        [train_dataset, val_dataset, test_dataset], 
-        batch_sizes=[job["batch_size"]] * 3, 
-        shuffles=[True, True, False],
-        logger=logger,
-        num_workers=CONFIG["general"]["num_data_workers"],
-        pin_memory=True,
-        persistent_workers=True
-        # collate_fn=lambda x: tuple(zip(*x)) # TODO: why is this needed????????????
-    )
+    # ########## Convert DataSet objects to DataLoader objects. ##########
+    # train_dataloader, val_dataloader, test_dataloader = to_dataloaders(
+    #     [train_dataset, val_dataset, test_dataset], 
+    #     batch_sizes=[job["batch_size"]] * 3, 
+    #     shuffles=[True, True, False],
+    #     logger=logger,
+    #     num_workers=CONFIG["general"]["num_data_workers"],
+    #     pin_memory=True,
+    #     persistent_workers=True
+    #     # collate_fn=lambda x: tuple(zip(*x)) # TODO: why is this needed????????????
+    # )
 
-    ###### Save quick example of the training dataloader to file. ######
-    logger.debug("Visualising the first batch of the train dataloader.")
-    visualise_batch(
-        train_dataloader, 
-        job["plotting_conf_threshold"], 
-        f"{handle_output.OUTPUT_DIR}train_batch_1_true.png"
-    )
+    # ###### Save quick example of the training dataloader to file. ######
+    # logger.debug("Visualising the first batch of the train dataloader.")
+    # visualise_batch(
+    #     train_dataloader, 
+    #     job["plotting_conf_threshold"], 
+    #     f"{handle_output.OUTPUT_DIR}train_batch_1_true.png"
+    # )
 
     ####################################################################
     #                     Load the (correct) model.                    #
     ####################################################################
     logger.debug(f"Initialising the model ({job['model']})")
     models = {
-        "yolov1base": (YOLOv1Base, {"logger": logger}), 
-        "yolov1resnet": (YOLOv1ResNet, {
-            "logger": logger,
-            "freeze_backbone" : False # TODO: should we freeze these weights?
+        "lstm": (LSTM, {
+            "input_size": job["input_size"],
+            "hidden_size": job["hidden_size"][0],
+            "num_layers": job["num_layers"],
+            "logger": logger
         })
     }
     model = None
@@ -141,25 +140,11 @@ def _process_job(
             break
     assert model is not None, "Provided model in config does not exist."
 
-    ################ Start from checkpoint, if provided. ###############
-    if job["start_from_checkpoint_path"].lower() not in ["none", "false"]:
-        if job["start_from_checkpoint_path"].lower() == "previous":
-            previous_job_dir = "/".join(
-                handle_output.OUTPUT_DIR.split("/")[:-2]
-            ) + f"/job_{job_id - 1}/"
-            logger.debug(f"Continue from previous job: {previous_job_dir}")
-            model = model.load(previous_job_dir, logger)
-        else:
-            logger.debug(
-                "starting from provided checkpoint model: "
-                f"{job["start_from_checkpoint_path"]}"
-            )
-            model = model.load(job["start_from_checkpoint_path"], logger)
-
     logger.debug(f"Model:\n{model}")
     logger.debug("Total number of parameters: "
         f"{sum(p.numel() for p in model.parameters()):,}"
     )
+    exit()
 
     model = model.to(DEVICE)
 
@@ -396,7 +381,7 @@ if __name__ == "__main__":
         '--config', 
         dest='config_file_path', 
         type=str, 
-        default="assignment_4/config/config.yaml", 
+        default="assignment_1/config/config.yaml", 
         help="Path to config file. (default: %(default)s)"
     )
     args = parser.parse_args()
@@ -404,7 +389,7 @@ if __name__ == "__main__":
     # Initialise Logger.
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     logger = create_logger(
-        name="Computer Vision - Assignment 4", 
+        name="Deep Learning - Assignment 1", 
         output_log_file_name=f"{handle_output.OUTPUT_DIR}process.log"
     )
     logger.info(f"Provided commandline arguments: {args.__dict__}")
