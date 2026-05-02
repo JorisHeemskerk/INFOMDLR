@@ -19,13 +19,14 @@ from typing import Any
 
 import handle_output
 
-from timeseries_dataset import TimeseriesDataset
 from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
 from early_stopper import EarlyStopper
-from train import train, evaluate
 from lstm import LSTM
+from rnn import RNN
+from timeseries_dataset import TimeseriesDataset
+from train import train, evaluate
 
 
 def _process_job(
@@ -102,6 +103,12 @@ def _process_job(
     logger.debug(f"Initialising the model ({job['model']})")
     models = {
         "lstm": (LSTM, {
+            "input_size": 1,
+            "hidden_size": job["hidden_size"][0],
+            "num_layers": job["num_layers"],
+            "logger": logger
+        }),
+        "rnn": (RNN, {
             "input_size": 1,
             "hidden_size": job["hidden_size"][0],
             "num_layers": job["num_layers"],

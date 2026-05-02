@@ -5,9 +5,9 @@ from torch import nn
 from base_model import BaseModel
 
 
-class LSTM(BaseModel):
+class RNN(BaseModel):
     """
-    A LSTM model for predicting time-series data.
+    A RNN model for predicting time-series data.
     """
     def __init__(
         self,
@@ -15,7 +15,7 @@ class LSTM(BaseModel):
         hidden_size: int,
         num_layers: int,
         logger: logging.Logger
-    )-> None:
+    ) -> None:
         """
         Define the layers of the model.
 
@@ -23,21 +23,23 @@ class LSTM(BaseModel):
         :type input_size: int
         :param hidden_size: The number of features in the hidden state.
         :type hidden_size: int
-        :param num_layers: Number of LSTM layers.
+        :param num_layers: Number of RNN layers.
         :type num_layers: int
         :param logger: Logger to log to.
         :type logger: logging.Logger
         """
-        super().__init__(logger)
 
-        self.backbone = nn.LSTM(
+        super().__init__(logger)
+ 
+        self.backbone = nn.RNN(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            batch_first=True
+            batch_first=True,
+            nonlinearity="tanh"
         )
         self.head = nn.Linear(hidden_size, 1)
-
+ 
         self._initialise_weights()
 
     def forward(self, x: torch.Tensor)-> torch.Tensor:
