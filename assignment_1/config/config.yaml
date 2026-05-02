@@ -13,9 +13,9 @@ general:
 jobs:
     job0:
         model: "LSTM"
-        input_size: 10
+        input_size: 5
         hidden_size: [20]
-        num_layers: 2
+        num_layers: 1
         optimiser: "adam"
         train_val_split: [.8, .2]
         batch_size: 8

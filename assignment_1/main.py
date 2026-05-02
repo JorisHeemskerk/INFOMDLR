@@ -6,7 +6,6 @@ work for the Computer Vision course, and is being re-used here.
 
 import argparse
 import logging
-import numpy as np
 import os
 import shutil
 import torch
@@ -15,8 +14,7 @@ import yaml
 
 from jsonschema import validate, ValidationError
 from sklearn.model_selection import train_test_split
-from torchvision import transforms
-from torch.utils.data import ConcatDataset
+from torch import nn
 from typing import Any
 
 import handle_output
@@ -26,10 +24,8 @@ from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
 from early_stopper import EarlyStopper
-from train import train, predict_epoch, train_cross_validation, compute_epoch_map
-from visualise import visualise_training
-from yolov1_base import YOLOv1Base
-from yolov1_resnet import YOLOv1ResNet
+from train import train, evaluate
+from LSTM import LSTM
 
 
 def _process_job(
@@ -59,7 +55,7 @@ def _process_job(
     ####################################################################
     dataset = TimeseriesDataset(
         source="assignment_1/Xtrain.mat",
-        window_size=5,
+        window_size=job["input_size"],
         horizon=1,
         stride=1,
     )
@@ -67,14 +63,13 @@ def _process_job(
     ####################################################################
     #                      Create the DataLoaders.                     #
     ####################################################################
-    logger.debug(f"Splitting the dataset into {job["train_val_test_split"]}.")
+    logger.debug(f"Splitting the dataset into {job["train_val_split"]}.")
     indices = list(range(len(dataset)))
     
     ################## Split in a stratisfied manner. ##################
     train_idx, val_idx = train_test_split(
         indices, 
-        test_size= \
-            job["train_val_test_split"][1] + job["train_val_test_split"][2],
+        test_size=job["train_val_split"][1],
         random_state=42
     )
     train_dataset = torch.utils.data.Subset(dataset, train_idx)
@@ -92,9 +87,7 @@ def _process_job(
         num_workers=CONFIG["general"]["num_data_workers"],
         pin_memory=True,
         persistent_workers=True
-        # collate_fn=lambda x: tuple(zip(*x)) # TODO: why is this needed????????????
     )
-    exit() # TODO: remove
 
     ####################################################################
     #                     Load the (correct) model.                    #
@@ -102,7 +95,7 @@ def _process_job(
     logger.debug(f"Initialising the model ({job['model']})")
     models = {
         "lstm": (LSTM, {
-            "input_size": job["input_size"],
+            "input_size": 1,
             "hidden_size": job["hidden_size"][0],
             "num_layers": job["num_layers"],
             "logger": logger
@@ -119,190 +112,94 @@ def _process_job(
     logger.debug("Total number of parameters: "
         f"{sum(p.numel() for p in model.parameters()):,}"
     )
-    exit()
 
     model = model.to(DEVICE)
 
     ####################################################################
+    #                       Initialize optimiser.                      #
+    ####################################################################
+    logger.debug(f"Initialising the optimiser ({job['optimiser']})")
+    optimisers = {
+        "adam": (torch.optim.Adam, {
+            "params": model.parameters(),
+            "lr": job["learning_rate"],
+            "weight_decay": 1e-4
+        })
+    }
+    OPTIMISER = None
+    for name, (cls, kwargs) in optimisers.items():
+        if job['optimiser'].lower() in name:
+            OPTIMISER = cls(**kwargs)
+            break
+    assert OPTIMISER is not None, \
+        "Provided optimiser in config does not exist."
+
+    ####################################################################
     #                         Train the model.                         #
     ####################################################################
-    OPTIMISER = torch.optim.Adam(
-        params=model.parameters(),
-        lr=job["learning_rate"],
-        weight_decay=1e-4
-    )
-    SCHEDULER = None
-    SCHEDULER = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        OPTIMISER, 
-        mode='min', 
-        patience=10, 
-        factor=0.5
-    )
-    LOSS_FN = None
-    EARLY_STOPPER = EarlyStopper(15, 0.01)
+    # SCHEDULER = None
+    # SCHEDULER = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     OPTIMISER, 
+    #     mode='min', 
+    #     patience=10, 
+    #     factor=0.5
+    # )
+    LOSS_FN = nn.MSELoss()
+    # EARLY_STOPPER = EarlyStopper(15, 0.01)
 
     # Arguments used by both normal training and cross_validation
     arguments = {
         "model" : model,
         "loss_fn" : LOSS_FN,
         "optimiser": OPTIMISER,
-        "scheduler" : SCHEDULER,
-        "early_stopper" : EARLY_STOPPER,
+        # "scheduler" : SCHEDULER,
+        # "early_stopper" : EARLY_STOPPER,
         "n_epochs" : job["n_epochs"],
         "device" : DEVICE,
-        "grid_size" : CONFIG["general"]["grid_size"],
-        "iou_thresholds" : job["iou_thresholds"],
-        "conf_threshold" : job["conf_threshold"],
         "logger" : logger
     }
-    # Only perform cross validation on k >= 2.
-    # Normal training, no folds.
-    if job["k_folds"] <= 1:
-        train_losses, train_mAPs, val_losses, val_mAPs, model = train(
-            train_dataloader=train_dataloader, 
-            val_dataloader=val_dataloader,
-            **arguments
-        )
-        train_losses_std, train_mAPs_std = None, None
-        val_losses_std, val_mAPs_std = None, None
-    # Training with k-folds
-    else:
-        all_train_dataset = ConcatDataset([train_dataset, val_dataset])
 
-        train_losses, train_mAPs, val_losses, val_mAPs, model = \
-            train_cross_validation(
-                full_train_dataset=all_train_dataset,
-                k_folds=job["k_folds"],
-                dataset_to_dataloader_function=lambda dataset: to_dataloaders(
-                    [dataset],
-                    batch_sizes=[job["batch_size"]],
-                    shuffles=[False],
-                    logger=logger,
-                    num_workers=CONFIG["general"]["num_data_workers"],
-                    pin_memory=True,
-                    persistent_workers=True
-                ),
-                **arguments, 
-            )
-        # Combine all folds into 1, remembering the data distributions.
-        loss_keys = train_losses.keys()
-        mAP_keys = train_mAPs.keys()
+    train_losses, val_losses, model = train(
+        train_dataloader=train_dataloader, 
+        val_dataloader=val_dataloader,
+        **arguments
+    )
 
-        mean_func = lambda x, y: {k: np.nanmean(x[k], axis=0) for k in y}
-        std_func = lambda x, y: {k: np.nanstd(x[k], axis=0) for k in y}
-        
-        train_losses_std = std_func(train_losses, loss_keys)
-        train_losses = mean_func(train_losses, loss_keys)
-        
-        val_losses_std = std_func(val_losses, loss_keys)
-        val_losses = mean_func(val_losses, loss_keys)
-        
-        train_mAPs_std = std_func(train_mAPs, mAP_keys)
-        train_mAPs = mean_func(train_mAPs, mAP_keys)
-
-        val_mAPs_std = std_func(val_mAPs, mAP_keys)
-        val_mAPs = mean_func(val_mAPs, mAP_keys)
-    
     # Save the best performing model (based on the validation set).
     model.save(handle_output.OUTPUT_DIR)
     ####################################################################
     #                         Show the results.                        #
     ####################################################################
-    ########### Log the best training and validation scores. ###########
-    # TODO: what if the first threshold is not the best for this?
-    mAP_train_string = ", ".join(
-        f"mAP@{threshold}: {np.max(train_mAPs[str(threshold)])*100:<2f}%"
-        for threshold in job["iou_thresholds"]
-    )
-    train_best_epoch = np.nanargmax(
-        train_mAPs[str(job["iou_thresholds"][0])]
-    ) + 1
-    mAP_val_string = ", ".join(
-        f"mAP@{threshold}: {np.max(val_mAPs[str(threshold)])*100:<2f}%"
-        for threshold in job["iou_thresholds"]
-    )
-    val_best_epoch = np.nanargmax(val_mAPs[str(job["iou_thresholds"][0])]) + 1
-    logger.critical(
-        f"Best training scores: {mAP_train_string} | "
-        f"achieved during epoch {train_best_epoch}."
-    )
-    logger.critical(
-        f"Best validation scores: {mAP_val_string} | "
-        f"achieved during epoch {val_best_epoch}."
-    )
-
-    ########### Get results on training and validation sets. ###########
-    train_epoch_map = compute_epoch_map(
-        model,
+    ########### Log the training and validation scores. ###########
+    train_mae, train_mse = evaluate(
         train_dataloader,
-        DEVICE,
-        CONFIG["general"]["grid_size"],
-        job["iou_thresholds"], 
-        job["conf_threshold"]
-    )
-    mAP_val_epoch_string = ", ".join(
-        f"mAP@{threshold}: {train_epoch_map[str(threshold)]*100:<2f}%"
-        for threshold in job["iou_thresholds"]
-    )
-    logger.critical(f"Training set over all images: {mAP_val_epoch_string}")
-    val_epoch_map = compute_epoch_map(
         model,
-        val_dataloader,
         DEVICE,
-        CONFIG["general"]["grid_size"],
-        job["iou_thresholds"], 
-        job["conf_threshold"]
-    )
-    mAP_val_epoch_string = ", ".join(
-        f"mAP@{threshold}: {val_epoch_map[str(threshold)]*100:<2f}%"
-        for threshold in job["iou_thresholds"]
-    )
-    logger.critical(f"Validation set over all images: {mAP_val_epoch_string}")
-    
-    ############### Produce all the loss and mAP figures. ##############
-    visualise_training(
-        train_losses, 
-        train_mAPs, 
-        val_losses, 
-        val_mAPs, 
-        handle_output.OUTPUT_DIR,
-        train_losses_std, 
-        train_mAPs_std, 
-        val_losses_std, 
-        val_mAPs_std
+        logger
     )
 
-    ###### Predict on the validation set, then visualise batch 1. ######
-    predict_epoch(
-        dataloader=val_dataloader,
-        model=model,
-        loss_fn=LOSS_FN,
-        device=DEVICE,
-        grid_size=CONFIG["general"]["grid_size"],
-        iou_thresholds=job["iou_thresholds"],
-        conf_threshold=job["conf_threshold"],
-        plotting_conf_threshold=job["plotting_conf_threshold"],
-        visualise_first_batch=True,
-        logger=logger
+    logger.critical(
+        f"Train results: \nMAE: {train_mae:<2f} | MSE: {train_mse:<2f}"
     )
+
+    val_mae, val_mse = evaluate(
+        val_dataloader,
+        model,
+        DEVICE,
+        logger
+    )
+    
+    logger.critical(
+        f"Validation results: \nMAE: {val_mae:<2f} | MSE: {val_mse:<2f}"
+    )
+    
+    ################# Plot the predicted and real values ###############
+    # TODO: plot comparing the predicted and real values 
+
     ####################################################################
     #                          Apply test set.                         #
     ####################################################################
-    
-    test_mAP = compute_epoch_map(
-        model,
-        test_dataloader,
-        DEVICE,
-        CONFIG["general"]["grid_size"],
-        job["iou_thresholds"], 
-        job["conf_threshold"]
-    )
-    mAP_test_epoch_string = ", ".join(
-        f"mAP@{threshold}: {test_mAP[str(threshold)]*100:<2f}%"
-        for threshold in job["iou_thresholds"]
-    )
-    logger.critical(f"Test set over all images: {mAP_test_epoch_string}")
-
+    # TODO: add on friday!
 
 
 def main()-> None:

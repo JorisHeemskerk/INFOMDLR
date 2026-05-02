@@ -1,3 +1,9 @@
+"""
+DISCLAIMER: 
+This code was previously part of Joris Heemskerk's & Bas de Blok's prior
+work for the Computer Vision course, and is being re-used here.
+"""
+
 import logging
 import torch
 from torch import nn
@@ -15,19 +21,28 @@ class LSTM(nn.Module):
         logger: logging.Logger
     )-> None:
         """
-        Define the layers of the moddel.
-        
+        Define the layers of the model.
+
+        :param input_size: Number of features per timestep.
+        :type input_size: int
+        :param hidden_size: The number of features in the hidden state.
+        :type hidden_size: int
+        :param num_layers: Number of LSTM layers.
+        :type num_layers: int
         :param logger: Logger to log to.
         :type logger: logging.Logger
         """
         super().__init__()
+
         self.logger = logger
-        self.backbone = nn.Sequential(
-            nn.LSTM(input_size, hidden_size, num_layers)
+        self.backbone = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True
         )
-        self.head = nn.Sequential(
-            nn.Linear(hidden_size, 1)
-        )
+        self.head = nn.Linear(hidden_size, 1)
+
         self.__initialise_weights()
 
     def __initialise_weights(self)-> None:
@@ -46,13 +61,14 @@ class LSTM(nn.Module):
         """
         Perform a forward pass on the network.
 
-        :param x: Input tensor of shape 
-            (batch_size, 3, img_size, img_size).
+        :param x: Input tensor of shape (batch_size, window_size, 
+            input_size).
         :type x: torch.Tensor
-        :return: Output tensor of shape (batch_size, 343)
+        :return: Output tensor of shape (batch_size, 1).
         :rtype: torch.Tensor
         """
-        return self.head(self.backbone(x))
+        backbone, _ = self.backbone(x)
+        return self.head(backbone[:, -1, :])
 
     def save(self, destination: str)-> None:
         """
@@ -73,13 +89,12 @@ class LSTM(nn.Module):
         Load a model from a file.
 
         :param source: Directory or .pth file to load the model from.
-            If a directory is given, loads 'best_YOLOv1Base.pth'.
         :type source: str
         :param logger: Logger to assign to the loaded model, as it would
             otherwise load the old logger.
         :type logger: logging.Logger
         :return: The loaded model instance.
-        :rtype: YOLOv1Base
+        :rtype: LSTM
         """
         filename = f"{source}/best_{cls.__name__}.pth"
         if ".pth" in source:
