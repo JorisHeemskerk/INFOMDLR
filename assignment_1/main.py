@@ -25,7 +25,7 @@ from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
 from early_stopper import EarlyStopper
 from train import train, evaluate
-from LSTM import LSTM
+from lstm import LSTM
 
 
 def _process_job(
@@ -43,22 +43,22 @@ def _process_job(
     :param logger: Logger to log to.
     :type logger: logging.Logger
     """
-    # ############ Change output dir to specific job folder. #############
-    # handle_output.OUTPUT_DIR = f"{handle_output.OUTPUT_DIR}job_{job_id}/" if \
-    #     job_id == 0 else "/".join(
-    #         handle_output.OUTPUT_DIR.split("/")[:-2]
-    #     ) + f"/job_{job_id}/"
-    # os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
+    ############ Change output dir to specific job folder. #############
+    handle_output.OUTPUT_DIR = f"{handle_output.OUTPUT_DIR}job_{job_id}/" if \
+        job_id == 0 else "/".join(
+            handle_output.OUTPUT_DIR.split("/")[:-2]
+        ) + f"/job_{job_id}/"
+    os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
 
     ####################################################################
     #                          Load the data.                          #
     ####################################################################
     dataset = TimeseriesDataset(
         source="assignment_1/Xtrain.mat",
-        window_size=job["input_size"],
-        horizon=1,
-        stride=1,
+        window_size=job["window_size"],
+        stride=job["stride"],
     )
+    logger.debug(f"Dataset size: {len(dataset)}")
 
     ####################################################################
     #                      Create the DataLoaders.                     #
@@ -66,12 +66,19 @@ def _process_job(
     logger.debug(f"Splitting the dataset into {job["train_val_split"]}.")
     indices = list(range(len(dataset)))
     
-    ################## Split in a stratisfied manner. ##################
+    ######################### Split the data. ##########################
     train_idx, val_idx = train_test_split(
         indices, 
         test_size=job["train_val_split"][1],
         random_state=42
     )
+    # Normalise based on only the train partition.
+    dataset.fit_normalisation(train_idx)
+    logger.debug(
+        f"Normalisation fitted on training set: "
+        f"mean={dataset.mean:.4f}, std={dataset.std:.4f}"
+    )
+
     train_dataset = torch.utils.data.Subset(dataset, train_idx)
     val_dataset = torch.utils.data.Subset(dataset, val_idx)
     logger.debug(
@@ -175,7 +182,9 @@ def _process_job(
         train_dataloader,
         model,
         DEVICE,
-        logger
+        logger,
+        mean=dataset.mean,
+        std=dataset.std
     )
 
     logger.critical(
@@ -186,7 +195,9 @@ def _process_job(
         val_dataloader,
         model,
         DEVICE,
-        logger
+        logger,
+        mean=dataset.mean,
+        std=dataset.std
     )
     
     logger.critical(
@@ -195,11 +206,13 @@ def _process_job(
     
     ################# Plot the predicted and real values ###############
     # TODO: plot comparing the predicted and real values 
+    # NOTE: DO NOT FORGET TO DENORMALISE!!!
 
     ####################################################################
     #                          Apply test set.                         #
     ####################################################################
     # TODO: add on friday!
+    # NOTE: DO NOT FORGET TO NORMALISE/DENORMALISE!!!
 
 
 def main()-> None:

@@ -184,7 +184,9 @@ def evaluate(
     dataloader: DataLoader, 
     model: nn.Module,
     device: str,
-    logger: logging.Logger  
+    logger: logging.Logger,
+    mean: float | None=None,
+    std: float | None=None,
 )-> tuple[float, float]:
     """
     Evaluate a model by calculating the MAE and MSE on a dataset.
@@ -197,24 +199,33 @@ def evaluate(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param mean: Mean to denormalise with.
+    :type mean: float | None
+    :param std: Standard deviation to denormalise with.
+    :type std: float | None
     :return: MAE and MSE on the dataset
     :rtype: tuple[float, float]
     """
-    total_mae = 0
-    total_mse = 0
-
-    mae = nn.L1Loss()
-    mse = nn.MSELoss()
-
     model.eval()
+    predictions = []
+    targets = []
 
     with torch.no_grad():
-        for X, y in dataloader:
-            X = X.to(device)
-            y = y.squeeze(-1).to(device)
-            y_hat = model(X)
+        for x, y in dataloader:
+            x = x.to(device)
+            pred = model(x)
+            predictions.append(pred.cpu())
+            targets.append(y.cpu())
 
-            total_mae += mae(y_hat, y).item()
-            total_mse += mse(y_hat, y).item()
+    predictions = torch.cat(predictions)
+    targets = torch.cat(targets)
 
-    return total_mae / len(dataloader), total_mse / len(dataloader)
+    # Denormalise if stats are provided.
+    if mean is not None and std is not None:
+        predictions = predictions * std + mean
+        targets = targets * std + mean
+
+    mae = torch.nn.functional.l1_loss(predictions, targets).item()
+    mse = torch.nn.functional.mse_loss(predictions, targets).item()
+
+    return mae, mse

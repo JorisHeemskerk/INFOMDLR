@@ -18,7 +18,8 @@ modify this code, at the express notion that a disclaimer was put in.
         job0:
             model: _
             input_size: _
-            hidden_size: _
+            window_size: _
+            stride: _
             num_layers: _
             optimiser: _
             train_val_split: _
@@ -53,7 +54,11 @@ CONFIG_TEMPLATE = {
                         'model': {
                             'type': 'string', 
                         },
-                        'input_size': {
+                        'window_size': {
+                            'type': 'number', 
+                            'minimum': 1
+                        },
+                        'stride': {
                             'type': 'number', 
                             'minimum': 1
                         },
@@ -89,7 +94,8 @@ CONFIG_TEMPLATE = {
                     },
                     'required': [
                         'model',
-                        'input_size',
+                        'window_size',
+                        'stride',
                         'hidden_size',
                         'num_layers',
                         'optimiser',

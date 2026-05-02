@@ -5,15 +5,16 @@
 # modify this code, at the express notion that a disclaimer was put in.
 
 # Default environment yaml file
-# NOTE: See assignment_4/config/config_validation_template.py for the 
+# NOTE: See assignment_1/config/config_validation_template.py for the 
 # parameter restrictions.
 
 general:
-    num_data_workers: 4 # Number of workers preparing batches.
+    num_data_workers: 1 # Number of workers preparing batches.
 jobs:
     job0:
         model: "LSTM"
-        input_size: 5
+        window_size: 5
+        stride: 1
         hidden_size: [20]
         num_layers: 1
         optimiser: "adam"
