@@ -8,9 +8,15 @@ import copy
 import logging
 import torch
 
+import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+METRICS = {
+    "MAE": torch.nn.functional.l1_loss, 
+    "MSE": torch.nn.functional.mse_loss
+}
 
 
 def train(
@@ -24,7 +30,9 @@ def train(
     logger: logging.Logger
 )-> tuple[
     list[float],
+    dict[str, list[float]],
     list[float],
+    dict[str, list[float]],
     nn.Module
 ]:
     """
@@ -46,20 +54,24 @@ def train(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
-    :return: Per epoch train losses and validation losses. Along with 
-        the model checkpoint that achieved the best validation loss.
+    :return: Per epoch train losses and metrics and validation losses 
+        and metrics. Along with the model checkpoint that achieved the 
+        best validation loss.
     :rtype: tuple[
         list[float],
+        dict[str, list[float]],
         list[float],
+        dict[str, list[float]],
         nn.Module
     ]
     """
     best = None
-    train_losses_per_epoch, val_losses_per_epoch = [], []
+    train_losses_per_epoch, train_metrics_per_epoch = [], [] 
+    val_losses_per_epoch, val_metrics_per_epoch = [], []
     for i in tqdm(range(n_epochs), "\033[33mEpoch"):
         print("\033[37m", end="") # Reset colour.
         logger.info(f"-----===== Epoch {i} (training) =====-----")
-        train_loss = train_epoch(
+        train_loss, train_metrics = train_epoch(
             train_dataloader, 
             model, 
             loss_fn, 
@@ -68,9 +80,10 @@ def train(
             logger
         )
         train_losses_per_epoch.append(train_loss)
+        train_metrics_per_epoch.append(train_metrics)
 
         logger.info(f"-----===== Epoch {i} (validation) =====-----")
-        val_loss = val_epoch(
+        val_loss, val_metrics = val_epoch(
             val_dataloader, 
             model, 
             loss_fn, 
@@ -83,11 +96,21 @@ def train(
         ) if len(val_losses_per_epoch) > 0 else float("inf"):
             best = copy.deepcopy(model.state_dict())
         val_losses_per_epoch.append(val_loss)
+        val_metrics_per_epoch.append(val_metrics)
 
     logger.info("Done training")
     model.load_state_dict(best)
 
-    return train_losses_per_epoch, val_losses_per_epoch, model
+    train_metrics = {
+        k: [d[k] for d in train_metrics_per_epoch] for k in METRICS
+    }
+    val_metrics = {k: [d[k] for d in val_metrics_per_epoch] for k in METRICS}
+    return \
+        train_losses_per_epoch, \
+        train_metrics, \
+        val_losses_per_epoch, \
+        val_metrics, \
+        model
 
 def train_epoch(
     dataloader: DataLoader, 
@@ -96,7 +119,7 @@ def train_epoch(
     optimiser: torch.optim.Optimizer,
     device: str,
     logger: logging.Logger
-)-> float:
+)-> tuple[float, dict[str, float]]:
     """
     Train a model for 1 epoch.
  
@@ -112,16 +135,17 @@ def train_epoch(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
-    :return: Average training loss over the epoch.
-    :rtype: float
+    :return: Average training loss and metrics over the epoch.
+    :rtype: tuple[float, dict[str, float]]
     """
     total_loss = 0
+    train_metrics = {metric: [] for metric in METRICS}
 
     model.train()
     for batch, (X, y) in enumerate(dataloader):
         X = X.to(device)
         y = y.squeeze(-1).to(device)
-        y_hat = model(X)
+        y_hat = model(X).squeeze(-1)
         loss = loss_fn(y_hat, y)
 
         loss.backward()
@@ -129,15 +153,24 @@ def train_epoch(
         optimiser.zero_grad()
 
         total_loss += loss.item()
+        for metric, method in METRICS.items():
+            train_metrics[metric].append(method(y_hat, y).item())
 
-        if batch % 10 == 0:
+        if batch % 20 == 0:
             current = batch * len(y) + len(X)
+            metrics_string = ", ".join(
+                f"(normalised) {metric}: {np.mean(train_metrics[metric]):>2f}"
+                for metric in METRICS.keys()
+            )
             logger.debug(
-                f"\033[30mtrain loss: {loss.item():>7f}  "
+                f"\033[30mtrain loss: {loss.item():>7f} | "
+                f"{metrics_string} | "
                 f"[{current:>5d}/{len(dataloader.dataset):>5d}]\033[37m"
             )
 
-    return total_loss / len(dataloader)
+    return \
+        total_loss / len(dataloader), \
+        {key: np.mean(value) for key, value in train_metrics.items()}
 
 def val_epoch(
     dataloader: DataLoader, 
@@ -145,7 +178,7 @@ def val_epoch(
     loss_fn: nn.Module,
     device: str,
     logger: logging.Logger
-)-> float:
+)-> tuple[float, dict[str, float]]:
     """
     Validate loss for a given dataset and model.
  
@@ -159,10 +192,11 @@ def val_epoch(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
-    :return: Average validation loss.
-    :rtype: float
+    :return: Average validation loss and metrics over the epoch.
+    :rtype: tuple[float, dict[str, float]]
     """
     total_loss = 0
+    val_metrics = {metric: [] for metric in METRICS}
 
     model.eval()
 
@@ -170,15 +204,24 @@ def val_epoch(
         for X, y in dataloader:
             X = X.to(device)
             y = y.squeeze(-1).to(device)
-            y_hat = model(X)
+            y_hat = model(X).squeeze(-1)
             loss = loss_fn(y_hat, y)
 
             total_loss += loss.item()
+            for metric, method in METRICS.items():
+                val_metrics[metric].append(method(y_hat, y).item())
             
     val_loss = total_loss / len(dataloader)
-    logger.debug(f"Avg loss: {val_loss:>8f} \n\033[37m")
+    metrics_string = ", ".join(
+        f"(normalised) {metric}: {np.mean(val_metrics[metric]):>2f}"
+        for metric in METRICS.keys()
+    )
+    logger.debug(f"Avg loss: {val_loss:>8f} | {metrics_string} |\n\033[37m")
 
-    return val_loss
+    return \
+        val_loss, \
+        {key: np.mean(value) for key, value in val_metrics.items()}
+    
 
 def evaluate(
     dataloader: DataLoader, 
@@ -213,9 +256,9 @@ def evaluate(
     with torch.no_grad():
         for x, y in dataloader:
             x = x.to(device)
-            pred = model(x)
+            pred = model(x).squeeze(-1)
             predictions.append(pred.cpu())
-            targets.append(y.cpu())
+            targets.append(y.squeeze(-1).cpu())
 
     predictions = torch.cat(predictions)
     targets = torch.cat(targets)
@@ -225,7 +268,4 @@ def evaluate(
         predictions = predictions * std + mean
         targets = targets * std + mean
 
-    mae = torch.nn.functional.l1_loss(predictions, targets).item()
-    mse = torch.nn.functional.mse_loss(predictions, targets).item()
-
-    return mae, mse
+    return tuple([f(predictions, targets).item() for f in METRICS.values()])

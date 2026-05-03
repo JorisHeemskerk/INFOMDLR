@@ -27,6 +27,7 @@ from lstm import LSTM
 from rnn import RNN
 from timeseries_dataset import TimeseriesDataset
 from train import train, evaluate
+from visualise import visualise_training
 
 
 def _process_job(
@@ -173,11 +174,31 @@ def _process_job(
         "logger" : logger
     }
 
-    train_losses, val_losses, model = train(
+    train_losses, train_metrics, val_losses, val_metrics, model = train(
         train_dataloader=train_dataloader, 
         val_dataloader=val_dataloader,
         **arguments
     )
+    # Denormalise if stats are provided.
+    if dataset.std is not None:
+        new_containers = [{}, {}]
+        for i, normalised_metrics in enumerate([train_metrics, val_metrics]):
+            for metric, values in normalised_metrics.items():
+                new_containers[i][metric] = []
+                for value in values:
+                    if metric == "MAE":
+                         new_containers[i][metric].append(value * dataset.std)
+                    elif metric == "MSE":
+                         new_containers[i][metric].append(
+                            value * dataset.std**2
+                        )
+                    else:
+                        logger.error(
+                            "Metric provided cannot be denormalised: "
+                            f"{metric = }"
+                        )
+        train_metrics = new_containers[0] 
+        val_metrics = new_containers[1]
 
     # Save the best performing model (based on the validation set).
     model.save(handle_output.OUTPUT_DIR)
@@ -212,8 +233,13 @@ def _process_job(
     )
     
     ################# Plot the predicted and real values ###############
-    # TODO: plot comparing the predicted and real values 
-    # NOTE: DO NOT FORGET TO DENORMALISE!!!
+    visualise_training(
+        train_losses, 
+        train_metrics,
+        val_losses, 
+        val_metrics,
+        handle_output.OUTPUT_DIR,
+    )
 
     ####################################################################
     #                          Apply test set.                         #

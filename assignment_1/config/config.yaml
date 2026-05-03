@@ -12,7 +12,7 @@ general:
     num_data_workers: 1 # Number of workers preparing batches.
 jobs:
     job0:
-        model: "RNN"
+        model: "lstm"
         window_size: 20
         stride: 1
         hidden_size: [32]
