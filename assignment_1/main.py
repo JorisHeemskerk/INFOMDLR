@@ -5,6 +5,7 @@ work for the Computer Vision course, and is being re-used here.
 """
 
 import argparse
+import copy
 import logging
 import os
 import shutil
@@ -15,6 +16,7 @@ import yaml
 from jsonschema import validate, ValidationError
 from sklearn.model_selection import train_test_split
 from torch import nn
+from torch.utils.data import DataLoader
 from typing import Any
 
 import handle_output
@@ -27,7 +29,7 @@ from lstm import LSTM
 from rnn import RNN
 from timeseries_dataset import TimeseriesDataset
 from train import train, evaluate
-from visualise import visualise_training
+from visualise import visualise_training, visualise_tuning
 
 
 def _process_job(
@@ -37,6 +39,11 @@ def _process_job(
 )-> None:
     """
     This function executes the jobs according to their description.
+
+    For each tunable parameter in job description, spin up several jobs,
+    each with different values for that parameter. For all others, the
+    first item in the list will be used as to prevent highly 
+    computationally expensive grid searches. 
 
     :param job: Job description, pulled from config
     :type job: dict[str, Any]
@@ -51,27 +58,115 @@ def _process_job(
             handle_output.OUTPUT_DIR.split("/")[:-2]
         ) + f"/job_{job_id}/"
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
+    job_output_dir = handle_output.OUTPUT_DIR
+
+    tunable_job_keys = [
+        'window_size',
+        'hidden_size',
+        'num_layers',
+        'learning_rate',
+        'batch_size',
+        'stride',
+        'weight_decay',
+    ]
+
+    tune_changes = False
+    for key, values in job.items():
+        if key in tunable_job_keys:
+            if len(values) > 1:
+                tune_changes = True
+                tune_results = []
+                for i, value in enumerate(values):
+                    run_description = copy.deepcopy(job)
+                    for tune_key in tunable_job_keys:
+                        if len(job[tune_key]) > 1 and tune_key != key:
+                            logger.warning(
+                                "Multiple parameters provided for multiple tun"
+                                f"able parameters. The values for {tune_key} ("
+                                f"{job[tune_key]}) will be ignored and the fir"
+                                "st value will be used ({job[tune_key][0]})."
+                            )
+                        run_description[tune_key] = job[tune_key][0]
+                    run_description[key] = value
+                    logger.info(
+                        f"----- Processing Job {job_id}, Run {i:3.0f}/"
+                        f"{len(values)-1:3.0f} -----"
+                    )
+                    logger.info(f"Run description: {run_description}")
+                    results = _process_run(
+                        run=run_description,
+                        run_id=i, 
+                        logger=logger
+                    )
+                    tune_results.append(results)
+                visualise_tuning(
+                    tune_param_name=key,
+                    tune_param_values=values,
+                    tune_results=tune_results,
+                    output_dir=job_output_dir
+                ) 
+    # If there were no instances of multiple parameters, run as 1 job.
+    if not tune_changes:
+        run_description = copy.deepcopy(job)
+        for tune_key in tunable_job_keys:
+            run_description[tune_key] = job[tune_key][0]
+        results = _process_run(
+            run=run_description,
+            run_id=None, 
+            logger=logger
+        )
+
+def _process_run(
+    run: dict[str, Any], 
+    run_id: int | None, 
+    logger: logging.Logger
+)-> dict[str, tuple[float, float, float, float]]:
+    """
+    This function executes the run according to their description.
+
+    :param run: Run description.
+    :type run: dict[str, Any]
+    :param run_id: ID of the current run (only provide if planning to 
+        perform multiple runs).
+    :type run_id: int | None
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    :returns: In order, the training and validation MAEs, then the MSEs.
+    :rtype: dict[str, tuple[float, float, float, float]]
+    """
+    ############ Change output dir to specific run folder. #############
+    if run_id is not None:
+        handle_output.OUTPUT_DIR = \
+            f"{handle_output.OUTPUT_DIR}run_{run_id}/" if \
+                run_id == 0 else "/".join(
+                    handle_output.OUTPUT_DIR.split("/")[:-2]
+                ) + f"/run_{run_id}/"
+        os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
+    
+    ######################### Save run config. #########################
+    with open(f'{handle_output.OUTPUT_DIR}run_config.yml', 'w') as outfile:
+        yaml.dump(run, outfile)
 
     ####################################################################
     #                          Load the data.                          #
     ####################################################################
     dataset = TimeseriesDataset(
         source="assignment_1/Xtrain.mat",
-        window_size=job["window_size"],
-        stride=job["stride"],
+        window_size=run["window_size"],
+        stride=run["stride"],
     )
     logger.debug(f"Dataset size: {len(dataset)}")
 
     ####################################################################
     #                      Create the DataLoaders.                     #
     ####################################################################
-    logger.debug(f"Splitting the dataset into {job["train_val_split"]}.")
+    logger.debug(f"Splitting the dataset into {run["train_val_split"]}.")
     indices = list(range(len(dataset)))
     
     ######################### Split the data. ##########################
     train_idx, val_idx = train_test_split(
         indices, 
-        test_size=job["train_val_split"][1],
+        test_size=run["train_val_split"][1],
         random_state=42
     )
     # Normalise based on only the train partition.
@@ -90,7 +185,7 @@ def _process_job(
     ########## Convert DataSet objects to DataLoader objects. ##########
     train_dataloader, val_dataloader = to_dataloaders(
         [train_dataset, val_dataset], 
-        batch_sizes=[job["batch_size"]] * 2, 
+        batch_sizes=[run["batch_size"]] * 2, 
         shuffles=[True, False],
         logger=logger,
         num_workers=CONFIG["general"]["num_data_workers"],
@@ -98,30 +193,99 @@ def _process_job(
         persistent_workers=True
     )
 
+    ############## Defer task to the individual model(s). ##############
+    if run["model"].lower() == "all":
+        MODELS = ["lstm", "rnn"]
+        all_model_results = {model: None for model in MODELS}
+        for model_id, model in enumerate(MODELS):
+            model_specific_run = copy.deepcopy(run)
+            model_specific_run["model"] = model
+            model_results = _process_model(
+                model_specific_run, 
+                model_id, 
+                dataset,
+                train_dataloader, 
+                val_dataloader, 
+                logger
+            )
+            all_model_results[model] = model_results
+        # Remove model specific sub-directory before starting next run.
+        handle_output.OUTPUT_DIR = "/".join(
+            handle_output.OUTPUT_DIR.split("/")[:-2]
+        ) + "/"
+        return all_model_results
+    else:
+        return {run["model"]: _process_model(
+            run, 
+            None, 
+            dataset,
+            train_dataloader, 
+            val_dataloader, 
+            logger
+        )}
+
+def _process_model(
+    run: dict[str, Any], 
+    model_id: int | None, 
+    dataset: TimeseriesDataset,
+    train_dataloader: DataLoader[Any], 
+    val_dataloader: DataLoader[Any],
+    logger: logging.Logger
+)-> tuple[float, float, float, float]:
+    """
+    Applies dataset to specific model. 
+    
+    This function makes it possible to do multiple models per job and 
+    run.
+
+    :param run: Run description.
+    :type run: dict[str, Any]
+    :param model_id: ID of the current model (only use if multiple 
+        models are being trained for a run).
+    :type model_id: int | None
+    :param train_dataloader: Dataloader for training data.
+    :type train_dataloader: DataLoader[Any]
+    :param val_dataloader: Dataloader for validation data.
+    :type val_dataloader: DataLoader[Any]
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    :returns: In order, the training and validation MAEs, then the MSEs.
+    :rtype: tuple[float, float, float, float]
+    """
+    ############ Change output dir to specific run folder. #############
+    if model_id is not None:
+        handle_output.OUTPUT_DIR = \
+            f"{handle_output.OUTPUT_DIR}{run["model"]}/" if \
+                model_id == 0 else "/".join(
+                    handle_output.OUTPUT_DIR.split("/")[:-2]
+                ) + f"/{run["model"]}/"
+        os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
+
     ####################################################################
     #                     Load the (correct) model.                    #
     ####################################################################
-    logger.debug(f"Initialising the model ({job['model']})")
+    logger.debug(f"Initialising the model ({run['model']})")
     models = {
         "lstm": (LSTM, {
             "input_size": 1,
-            "hidden_size": job["hidden_size"][0],
-            "num_layers": job["num_layers"],
+            "hidden_size": run["hidden_size"],
+            "num_layers": run["num_layers"],
             "logger": logger
         }),
         "rnn": (RNN, {
             "input_size": 1,
-            "hidden_size": job["hidden_size"][0],
-            "num_layers": job["num_layers"],
+            "hidden_size": run["hidden_size"],
+            "num_layers": run["num_layers"],
             "logger": logger
         })
     }
     model = None
     for name, (cls, kwargs) in models.items():
-        if job['model'].lower() in name:
+        if run['model'].lower() in name:
             model = cls(**kwargs)
             break
-    assert model is not None, "Provided model in config does not exist."
+    assert model is not None, \
+        f"Provided model in config does not exist ({model})."
 
     logger.debug(f"Model:\n{model}")
     logger.debug("Total number of parameters: "
@@ -133,17 +297,17 @@ def _process_job(
     ####################################################################
     #                       Initialize optimiser.                      #
     ####################################################################
-    logger.debug(f"Initialising the optimiser ({job['optimiser']})")
+    logger.debug(f"Initialising the optimiser ({run['optimiser']})")
     optimisers = {
         "adam": (torch.optim.Adam, {
             "params": model.parameters(),
-            "lr": job["learning_rate"],
-            "weight_decay": 1e-4
+            "lr": run["learning_rate"],
+            "weight_decay": run["weight_decay"]
         })
     }
     OPTIMISER = None
     for name, (cls, kwargs) in optimisers.items():
-        if job['optimiser'].lower() in name:
+        if run['optimiser'].lower() in name:
             OPTIMISER = cls(**kwargs)
             break
     assert OPTIMISER is not None, \
@@ -169,7 +333,7 @@ def _process_job(
         "optimiser": OPTIMISER,
         # "scheduler" : SCHEDULER,
         # "early_stopper" : EARLY_STOPPER,
-        "n_epochs" : job["n_epochs"],
+        "n_epochs" : run["n_epochs"],
         "device" : DEVICE,
         "logger" : logger
     }
@@ -246,7 +410,7 @@ def _process_job(
     ####################################################################
     # TODO: add on friday!
     # NOTE: DO NOT FORGET TO NORMALISE/DENORMALISE!!!
-
+    return train_mae, val_mae, train_mse, val_mse
 
 def main()-> None:
     ####################################################################

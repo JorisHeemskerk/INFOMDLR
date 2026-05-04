@@ -12,13 +12,14 @@ general:
     num_data_workers: 1 # Number of workers preparing batches.
 jobs:
     job0:
-        model: "rnn"
-        window_size: 10
-        stride: 1
+        model: "rnn" # Can be from: [lstm, rnn, all]
+        window_size: [20]
+        stride: [1]
         hidden_size: [32]
-        num_layers: 2
+        num_layers: [2]
         optimiser: "adam"
+        weight_decay: [0.0001]
         train_val_split: [.8, .2]
-        batch_size: 16
-        n_epochs: 200
-        learning_rate: .001 # 1e-3
+        batch_size: [16]
+        n_epochs: 100
+        learning_rate: [0.001]

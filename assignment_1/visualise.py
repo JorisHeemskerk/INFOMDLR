@@ -8,6 +8,8 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 
+from typing import Any
+
 
 def visualise_training(
         train_loss: torch.Tensor, 
@@ -109,4 +111,87 @@ def visualise_training(
     ax.legend()
     plt.tight_layout()
     plt.savefig(f"{output_dir}training_loss.png")
+    plt.close(fig)
+
+def visualise_tuning(
+    tune_param_name: str,
+    tune_param_values: list[Any],
+    tune_results: list[dict[str, tuple[float, float, float, float]]],
+    output_dir: str
+)-> None:
+    """
+    Visualise MAE and MSE for the tuned parameters.
+
+    :param tune_param_name: The name for the parameter that was tuned.
+    :type tune_param_name: str
+    :param tune_param_values: The range of values for the results.
+    :type tune_param_values: str
+    :param tune_results: Train and val MAE, and then MSE.
+    :type tune_results: list[dict[tuple[float, float, float, float]]]
+    :param output_dir: Where to save the images to.
+    :type output_dir: str
+    """
+    # Transform to dict[str, list[tuple[...]]]
+    results = dict(
+        (k, [v for d in tune_results if k in d for v in [d[k]]])
+        for k in {k for d in tune_results for k in d}
+    )
+
+    fig, ax = plt.subplots(nrows=1, ncols=2)
+    for model in results.keys():
+        ax[0].plot(
+            tune_param_values, 
+            [t_mae for t_mae, _, _, _, in results[model]],
+            label=f"Train {model.upper()}"
+        )
+        ax[0].plot(
+            tune_param_values, 
+            [v_mae for _, v_mae, _, _, in results[model]],
+            label=f"Val {model.upper()}"
+        )
+        ax[0].scatter(
+            tune_param_values, 
+            [t_mae for t_mae, _, _, _, in results[model]],
+        )
+        ax[0].scatter(
+            tune_param_values, 
+            [v_mae for _, v_mae, _, _, in results[model]],
+        )
+
+        ax[1].plot(
+            tune_param_values, 
+            [t_mse for  _, _, t_mse, _, in results[model]],
+            label=f"Train {model.upper()}"
+        )
+        ax[1].plot(
+            tune_param_values, 
+            [v_mse for _, _, _, v_mse in results[model]],
+            label=f"Val {model.upper()}"
+        )
+        ax[1].scatter(
+            tune_param_values, 
+            [t_mse for  _, _, t_mse, _, in results[model]],
+        )
+        ax[1].scatter(
+            tune_param_values, 
+            [v_mse for _, _, _, v_mse in results[model]],
+        )
+
+    ax[0].set_title(f"MAE for differing {tune_param_name}")
+    ax[0].set_xlabel(tune_param_name)
+    ax[0].set_ylabel("MAE")
+    ax[0].legend()
+
+    ax[1].set_title(f"MSE for differing {tune_param_name}")
+    ax[1].set_xlabel(tune_param_name)
+    ax[1].set_ylabel("MSE")
+    ax[1].legend()
+
+    fig.suptitle("Tuning results")
+    plt.tight_layout()
+    models = list(results.keys())
+    plt.savefig(
+        f"{output_dir}tuning_res__{tune_param_name}"
+        f"{'__' + models[0].upper() if len(models) == 1 else ''}.png"
+    )
     plt.close(fig)

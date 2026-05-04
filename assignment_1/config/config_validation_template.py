@@ -22,6 +22,7 @@ modify this code, at the express notion that a disclaimer was put in.
             stride: _
             num_layers: _
             optimiser: _
+            weight_decay: _
             train_val_split: _
             batch_size: _
             n_epochs: _
@@ -55,12 +56,14 @@ CONFIG_TEMPLATE = {
                             'type': 'string', 
                         },
                         'window_size': {
-                            'type': 'number', 
-                            'minimum': 1
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         },
                         'stride': {
-                            'type': 'number', 
-                            'minimum': 1
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         },
                         'hidden_size': {
                             'type': 'array',
@@ -68,11 +71,17 @@ CONFIG_TEMPLATE = {
                             'minItems': 1
                         },
                         'num_layers': {
-                            'type': 'number', 
-                            'minimum': 1
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         },
                         'optimiser': {
                             'type': 'string', 
+                        },
+                        'weight_decay': {
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         },
                         'train_val_split': {
                             'type': 'array',
@@ -81,15 +90,18 @@ CONFIG_TEMPLATE = {
                             'maxItems': 2
                         },
                         'batch_size': {
-                            'type': 'number', 
-                            'minimum': 1
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         },
                         'n_epochs': {
                             'type': 'number', 
                             'minimum': 1
                         },
                         'learning_rate': {
-                            'type': 'number'
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         }
                     },
                     'required': [
@@ -99,6 +111,7 @@ CONFIG_TEMPLATE = {
                         'hidden_size',
                         'num_layers',
                         'optimiser',
+                        'weight_decay',
                         'train_val_split',
                         'batch_size',
                         'n_epochs',
