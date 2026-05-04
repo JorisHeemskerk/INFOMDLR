@@ -302,6 +302,16 @@ if __name__ == "__main__":
         default="assignment_1/config/config.yaml", 
         help="Path to config file. (default: %(default)s)"
     )
+    parser.add_argument(
+        '-d',
+        '--device', 
+        dest='device', 
+        type=str, 
+        default=None, 
+        help=
+            "Device to run the models on. If not provided, an optimal device "
+            "will be determined and used. (default: %(default)s)"
+    )
     args = parser.parse_args()
 
     # Initialise Logger.
@@ -316,8 +326,11 @@ if __name__ == "__main__":
     torch.manual_seed(42)
 
     # Initialise Device.
-    DEVICE = torch.accelerator.current_accelerator().type if \
-        torch.accelerator.is_available() else "cpu"
+    if args.device is None:
+        DEVICE = torch.accelerator.current_accelerator().type if \
+            torch.accelerator.is_available() else "cpu"
+    else:
+        DEVICE = args.device
     logger.info(f"Using {DEVICE} device")
 
     # validate the provided config file.
