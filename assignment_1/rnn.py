@@ -28,7 +28,6 @@ class RNN(BaseModel):
         :param logger: Logger to log to.
         :type logger: logging.Logger
         """
-
         super().__init__(logger)
  
         self.backbone = nn.RNN(
@@ -38,7 +37,7 @@ class RNN(BaseModel):
             batch_first=True,
             nonlinearity="tanh"
         )
-        self.head = nn.Linear(hidden_size, 1)
+        self.head = nn.Linear(hidden_size, input_size)
  
         self._initialise_weights()
 

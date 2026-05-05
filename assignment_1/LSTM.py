@@ -36,7 +36,7 @@ class LSTM(BaseModel):
             num_layers=num_layers,
             batch_first=True
         )
-        self.head = nn.Linear(hidden_size, 1)
+        self.head = nn.Linear(hidden_size, input_size)
 
         self._initialise_weights()
 
