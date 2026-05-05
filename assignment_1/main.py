@@ -427,11 +427,11 @@ def _process_model(
     if dataset.mean is not None and dataset.std is not None:
         future_predictions = future_predictions * dataset.std + dataset.mean
 
-    all_data = torch.tensor(scipy.io.loadmat(run['dataset'])["Xtrain"])
+    all_data = torch.tensor(scipy.io.loadmat(run['dataset'])["Xtrain"]).cpu()
 
     visualise_future(
         past=all_data,
-        future=future_predictions,
+        future=future_predictions.cpu(),
         output_dir=handle_output.OUTPUT_DIR
     )
     
