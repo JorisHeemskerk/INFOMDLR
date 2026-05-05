@@ -12,7 +12,7 @@ general:
     num_data_workers: 1 # Number of workers preparing batches.
 jobs:
     job0:
-        model: "rnn" # Can be from: [lstm, rnn, all]
+        model: "rnn" # Can be from: [lstm, rnn, transformer, all]
         dataset: "assignment_1/Xtrain.mat"
         # dataset: "assignment_1/Xtrain_interpolated_4.mat"
         window_size: [20]
@@ -20,6 +20,21 @@ jobs:
         n_signals: 1
         hidden_size: [32]
         num_layers: [2]
+        optimiser: "adam"
+        weight_decay: [0.0001]
+        train_val_split: [.8, .2]
+        batch_size: [16]
+        n_epochs: 100
+        learning_rate: [0.001]
+    job1:
+        model: "transformer"
+        dataset: "assignment_1/Xtrain.mat"
+        # dataset: "assignment_1/Xtrain_interpolated_4.mat"
+        window_size: [20]
+        stride: [1]
+        n_signals: 1
+        hidden_size: [32]
+        num_layers: [1]
         optimiser: "adam"
         weight_decay: [0.0001]
         train_val_split: [.8, .2]

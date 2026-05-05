@@ -29,6 +29,7 @@ from data import to_dataloaders
 from early_stopper import EarlyStopper
 from lstm import LSTM
 from rnn import RNN
+from transformer import Transformer
 from timeseries_dataset import TimeseriesDataset
 from train import train, evaluate
 from visualise import visualise_training, visualise_tuning, visualise_future
@@ -198,7 +199,7 @@ def _process_run(
 
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
-        MODELS = ["lstm", "rnn"]
+        MODELS = ["lstm", "rnn", "transformer"]
         all_model_results = {model: None for model in MODELS}
         for model_id, model in enumerate(MODELS):
             model_specific_run = copy.deepcopy(run)
@@ -276,6 +277,12 @@ def _process_model(
             "logger": logger
         }),
         "rnn": (RNN, {
+            "input_size": run["n_signals"],
+            "hidden_size": run["hidden_size"],
+            "num_layers": run["num_layers"],
+            "logger": logger
+        }),
+        "transformer": (Transformer, {
             "input_size": run["n_signals"],
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
@@ -520,6 +527,7 @@ if __name__ == "__main__":
     # Seed PyTorch.
     torch.manual_seed(42)
 
+    torch.set_num_threads(1)
     # Initialise Device.
     if args.device is None:
         DEVICE = torch.accelerator.current_accelerator().type if \
