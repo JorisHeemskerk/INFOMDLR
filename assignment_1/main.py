@@ -30,6 +30,7 @@ from early_stopper import EarlyStopper
 from lstm import LSTM
 from rnn import RNN
 from transformer import Transformer
+from baseline import Baseline
 from timeseries_dataset import TimeseriesDataset
 from train import train, evaluate
 from visualise import visualise_training, visualise_tuning, visualise_future
@@ -287,6 +288,13 @@ def _process_model(
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
             "logger": logger
+        }),
+        "baseline": (Baseline, {
+        "input_size": run["n_signals"],
+        "hidden_size": run["hidden_size"],
+        "num_layers": run["num_layers"],
+        "logger": logger,
+        "window_size": run["window_size"], 
         })
     }
     model = None

@@ -41,3 +41,26 @@ jobs:
         batch_size: [16]
         n_epochs: 100
         learning_rate: [0.001]
+    job2:
+        model: "baseline"
+        dataset: "assignment_1/Xtrain.mat"
+        # dataset: "assignment_1/Xtrain_interpolated_4.mat"
+        # window_size is 3 for the model to serve as the baseline
+        window_size: [3]
+        stride: [1]
+        n_signals: 1
+        # hidden_size and num_layers are ignored by MLPBaseline (fixed at 3
+        # neurons / 1 hidden layer per spec), but must be present for schema
+        # validation.
+        hidden_size: [3]
+        num_layers: [1]
+        optimiser: "adam"
+        # A small weight decay (1e-4) prevents over-fitting on this
+        # very small model without noticeably slowing convergence.
+        weight_decay: [0.0001]
+        train_val_split: [.8, .2]
+        batch_size: [16]
+        n_epochs: 200
+        # lr=1e-3 is the standard Adam default and works well for small MLPs.
+        # 200 epochs is enough for a baseline model.
+        learning_rate: [0.001]
