@@ -8,6 +8,8 @@ import argparse
 import copy
 import logging
 import os
+import math
+import scipy.io
 import shutil
 import torch
 import traceback
@@ -27,9 +29,11 @@ from data import to_dataloaders
 from early_stopper import EarlyStopper
 from lstm import LSTM
 from rnn import RNN
+from transformer import Transformer
+from baseline import Baseline
 from timeseries_dataset import TimeseriesDataset
 from train import train, evaluate
-from visualise import visualise_training, visualise_tuning
+from visualise import visualise_training, visualise_tuning, visualise_future
 
 
 def _process_job(
@@ -151,11 +155,14 @@ def _process_run(
     #                          Load the data.                          #
     ####################################################################
     dataset = TimeseriesDataset(
-        source="assignment_1/Xtrain.mat",
+        source=run["dataset"],
         window_size=run["window_size"],
         stride=run["stride"],
+        n_signals=run["n_signals"],
     )
     logger.debug(f"Dataset size: {len(dataset)}")
+    logger.debug(f"Shape of first data x element: {dataset[0][0].shape}")
+    logger.debug(f"Shape of first data y element: {dataset[0][1].shape}")
 
     ####################################################################
     #                      Create the DataLoaders.                     #
@@ -178,9 +185,7 @@ def _process_run(
 
     train_dataset = torch.utils.data.Subset(dataset, train_idx)
     val_dataset = torch.utils.data.Subset(dataset, val_idx)
-    logger.debug(
-        f"{len(train_dataset)= }, {len(val_dataset)= }"
-    )
+    logger.debug(f"{len(train_dataset) = }, {len(val_dataset) = }")
 
     ########## Convert DataSet objects to DataLoader objects. ##########
     train_dataloader, val_dataloader = to_dataloaders(
@@ -195,7 +200,7 @@ def _process_run(
 
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
-        MODELS = ["lstm", "rnn"]
+        MODELS = ["lstm", "rnn", "transformer"]
         all_model_results = {model: None for model in MODELS}
         for model_id, model in enumerate(MODELS):
             model_specific_run = copy.deepcopy(run)
@@ -267,16 +272,29 @@ def _process_model(
     logger.debug(f"Initialising the model ({run['model']})")
     models = {
         "lstm": (LSTM, {
-            "input_size": 1,
+            "input_size": run["n_signals"],
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
             "logger": logger
         }),
         "rnn": (RNN, {
-            "input_size": 1,
+            "input_size": run["n_signals"],
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
             "logger": logger
+        }),
+        "transformer": (Transformer, {
+            "input_size": run["n_signals"],
+            "hidden_size": run["hidden_size"],
+            "num_layers": run["num_layers"],
+            "logger": logger
+        }),
+        "baseline": (Baseline, {
+        "input_size": run["n_signals"],
+        "hidden_size": run["hidden_size"],
+        "num_layers": run["num_layers"],
+        "logger": logger,
+        "window_size": run["window_size"], 
         })
     }
     model = None
@@ -404,12 +422,40 @@ def _process_model(
         val_metrics,
         handle_output.OUTPUT_DIR,
     )
+    ####################################################################
+    #                  Predict 200 future datapoints.                  #
+    ####################################################################
+    logger.info("Predicting 200 future elements.")
+    n_skipped_predictions = len(dataset) % run['n_signals']
+    window = dataset[-1][0].unsqueeze(0).to(DEVICE)
+    predictions = []
+    with torch.no_grad():
+        for _ in range(math.ceil(200 / run['n_signals'])):
+            pred = model(window)
+            predictions.append(pred)
+            window = torch.cat([window[:, 1:, :], pred.unsqueeze(1)], dim=1)
 
+    future_predictions = torch.stack(predictions).reshape(-1)[
+        n_skipped_predictions : 200 + n_skipped_predictions
+    ]
+    # denormalise
+    if dataset.mean is not None and dataset.std is not None:
+        future_predictions = future_predictions * dataset.std + dataset.mean
+
+    all_data = torch.tensor(scipy.io.loadmat(run['dataset'])["Xtrain"]).cpu()
+
+    visualise_future(
+        past=all_data,
+        future=future_predictions.cpu(),
+        output_dir=handle_output.OUTPUT_DIR
+    )
+    
     ####################################################################
     #                          Apply test set.                         #
     ####################################################################
     # TODO: add on friday!
     # NOTE: DO NOT FORGET TO NORMALISE/DENORMALISE!!!
+
     return train_mae, val_mae, train_mse, val_mse
 
 def main()-> None:
@@ -489,6 +535,7 @@ if __name__ == "__main__":
     # Seed PyTorch.
     torch.manual_seed(42)
 
+    torch.set_num_threads(1)
     # Initialise Device.
     if args.device is None:
         DEVICE = torch.accelerator.current_accelerator().type if \

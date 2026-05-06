@@ -55,6 +55,9 @@ CONFIG_TEMPLATE = {
                         'model': {
                             'type': 'string', 
                         },
+                        'dataset': {
+                            'type': 'string', 
+                        },
                         'window_size': {
                             'type': 'array',
                             'items': {'type': 'number'},
@@ -64,6 +67,10 @@ CONFIG_TEMPLATE = {
                             'type': 'array',
                             'items': {'type': 'number'},
                             'minItems': 1
+                        },
+                        'n_signals': {
+                            'type': 'number', 
+                            'minimum': 1
                         },
                         'hidden_size': {
                             'type': 'array',
@@ -108,6 +115,7 @@ CONFIG_TEMPLATE = {
                         'model',
                         'window_size',
                         'stride',
+                        'n_signals',
                         'hidden_size',
                         'num_layers',
                         'optimiser',

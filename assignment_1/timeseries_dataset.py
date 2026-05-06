@@ -14,10 +14,14 @@ class TimeseriesDataset(Dataset):
         self,
         source: str,
         window_size: int,
-        stride: int = 1,
+        stride: int,
+        n_signals: int = 1,
         dtype: torch.dtype = torch.float32,
     ):
         self._data = np.array(scipy.io.loadmat(source)["Xtrain"])
+        if n_signals > 1:
+            trimmed = self._data[:len(self._data) -len(self._data) % n_signals]
+            self._data = trimmed.reshape(-1, n_signals)
         
         if window_size < 1:
             raise ValueError(f"window_size must be >= 1, got {window_size}.")

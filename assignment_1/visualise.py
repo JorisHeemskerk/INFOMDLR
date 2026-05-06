@@ -195,3 +195,44 @@ def visualise_tuning(
         f"{'__' + models[0].upper() if len(models) == 1 else ''}.png"
     )
     plt.close(fig)
+
+def visualise_future(
+    past: torch.Tensor,
+    future: torch.Tensor,
+    output_dir: str
+)-> None:
+    """
+    Visualise future predictions.
+
+    :param past: Original dataset (ground truth).
+    :type past: torch.Tensor
+    :param future: Future predictions.
+    :type future: torch.Tensor
+    :param output_dir: Where to save the image to.
+    :type output_dir: str
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(14, 6), sharex=False)
+
+    x_orig = np.arange(len(past))
+    x_new = np.linspace(len(past), len(past) + len(future), len(future))
+    ax.plot(x_orig, past, "o", ms=2, zorder=3, color="C0")
+    ax.plot(x_new, future, "o", ms=2, zorder=3, color="C1")
+    ax.plot(x_orig, past, "-", lw=1.2, label="Original", alpha=0.8, color="C0")
+    ax.plot(
+        x_new, 
+        future, 
+        "-", 
+        lw=1.2, 
+        label="Predicted", 
+        alpha=0.8, 
+        color="C1"
+    )
+    ax.set_title("Future predictions")
+    ax.set_xlabel("Data index")
+    ax.set_ylabel("Feature value")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}future_predictions.png")
+    plt.close(fig)
