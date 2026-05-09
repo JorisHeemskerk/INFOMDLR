@@ -32,7 +32,7 @@ from rnn import RNN
 from transformer import Transformer
 from baseline import Baseline
 from timeseries_dataset import TimeseriesDataset
-from train import train, evaluate
+from train import train, evaluate, METRICS
 from visualise import visualise_training, visualise_tuning, visualise_future
 
 
@@ -159,10 +159,20 @@ def _process_run(
         window_size=run["window_size"],
         stride=run["stride"],
         n_signals=run["n_signals"],
+        partition="Xtrain"
     )
     logger.debug(f"Dataset size: {len(dataset)}")
     logger.debug(f"Shape of first data x element: {dataset[0][0].shape}")
     logger.debug(f"Shape of first data y element: {dataset[0][1].shape}")
+    test_data = TimeseriesDataset(
+        source="assignment_1/Xtest.mat",
+        window_size=1,
+        stride=1,
+        n_signals=1,
+        partition="Xtest"
+    )
+    logger.debug(f"Test dataset size: {len(test_data)}")
+    logger.debug("Note that this set is not normalised.")
 
     ####################################################################
     #                      Create the DataLoaders.                     #
@@ -209,6 +219,7 @@ def _process_run(
                 model_specific_run, 
                 model_id, 
                 dataset,
+                test_data,
                 train_dataloader, 
                 val_dataloader, 
                 logger
@@ -224,6 +235,7 @@ def _process_run(
             run, 
             None, 
             dataset,
+            test_data,
             train_dataloader, 
             val_dataloader, 
             logger
@@ -233,6 +245,7 @@ def _process_model(
     run: dict[str, Any], 
     model_id: int | None, 
     dataset: TimeseriesDataset,
+    test_data: TimeseriesDataset,
     train_dataloader: DataLoader[Any], 
     val_dataloader: DataLoader[Any],
     logger: logging.Logger
@@ -248,6 +261,10 @@ def _process_model(
     :param model_id: ID of the current model (only use if multiple 
         models are being trained for a run).
     :type model_id: int | None
+    :param dataset: the dataset.
+    :type dataset: TimeseriesDataset
+    :param test_data: Test dataset.
+    :type test_data: TimeseriesDataset
     :param train_dataloader: Dataloader for training data.
     :type train_dataloader: DataLoader[Any]
     :param val_dataloader: Dataloader for validation data.
@@ -422,39 +439,88 @@ def _process_model(
         val_metrics,
         handle_output.OUTPUT_DIR,
     )
+
     ####################################################################
     #                  Predict 200 future datapoints.                  #
     ####################################################################
     logger.info("Predicting 200 future elements.")
-    n_skipped_predictions = len(dataset) % run['n_signals']
-    window = dataset[-1][0].unsqueeze(0).to(DEVICE)
+    
+    try:
+       interpolation_factor = int(run["dataset"].split(".")[-2].split("_")[-1]) # NOTE: only works if the number is the final, sole, element in the name of the dataset and it is preceded by an underscore.
+    except ValueError:
+        interpolation_factor = 1
+
+    x, y = dataset[-1]
+    window = torch.cat(
+        (x[1:, :], y.reshape((1, run["n_signals"]))), dim=0
+    ).unsqueeze(0).to(DEVICE)
+    
     predictions = []
     with torch.no_grad():
-        for _ in range(math.ceil(200 / run['n_signals'])):
+        for _ in range(200):
             pred = model(window)
             predictions.append(pred)
             window = torch.cat([window[:, 1:, :], pred.unsqueeze(1)], dim=1)
 
-    future_predictions = torch.stack(predictions).reshape(-1)[
-        n_skipped_predictions : 200 + n_skipped_predictions
-    ]
+    future_predictions = torch.stack(predictions).reshape(-1)
+
     # denormalise
     if dataset.mean is not None and dataset.std is not None:
         future_predictions = future_predictions * dataset.std + dataset.mean
 
+    logger.debug("Comparing the future predictions with the test dataset.")
+    
+    
+    # Only every `interpolation_factor`-th prediction aligns with a test point.
     all_data = torch.tensor(scipy.io.loadmat(run['dataset'])["Xtrain"]).cpu()
-
-    visualise_future(
-        past=all_data,
-        future=future_predictions.cpu(),
-        output_dir=handle_output.OUTPUT_DIR
+    n_skipped_predictions = int(
+        (len(all_data) / interpolation_factor) % run['n_signals']
     )
     
-    ####################################################################
-    #                          Apply test set.                         #
-    ####################################################################
-    # TODO: add on friday!
-    # NOTE: DO NOT FORGET TO NORMALISE/DENORMALISE!!!
+    aligned_predictions = []
+    for i in range(
+        0, 
+        len(future_predictions), 
+        interpolation_factor*run["n_signals"]
+    ):
+        aligned_predictions.append(
+            future_predictions[
+                i + n_skipped_predictions : 
+                i + n_skipped_predictions + run["n_signals"]
+            ]
+        )
+    
+    aligned_predictions = torch.stack(aligned_predictions).reshape(-1).to(
+        future_predictions.device
+    )[:200]
+    test_tensor = torch.tensor(test_data._data).squeeze(-1).to(
+        future_predictions.device
+    )
+    
+    assert len(aligned_predictions) == len(test_tensor), \
+        "Mismatch between prediction and test lengths " \
+        f"({len(aligned_predictions) } != {len(test_tensor)})"
+    test_mae, test_mse = tuple([
+        f(aligned_predictions, test_tensor).item() for f in METRICS.values()
+    ])
+    
+    logger.critical(
+        f"Test results: \nMAE: {test_mae:<2f} | MSE: {test_mse:<2f}"
+    )
+
+    logger.debug("Visualising the future predictions")
+
+    # torch.save(all_data, 'all_data.pt')
+    # torch.save(future_predictions, 'future_predictions.pt')
+    # torch.save(test_tensor, "test_tensor.pt")
+
+    visualise_future(
+        past=all_data[-200*run["n_signals"]:],
+        future_pred=future_predictions.cpu(),
+        future_true=test_tensor.cpu(),
+        interpolation_factor=interpolation_factor,
+        output_dir=handle_output.OUTPUT_DIR
+    )
 
     return train_mae, val_mae, train_mse, val_mse
 

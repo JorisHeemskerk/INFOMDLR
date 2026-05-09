@@ -16,9 +16,10 @@ class TimeseriesDataset(Dataset):
         window_size: int,
         stride: int,
         n_signals: int = 1,
+        partition: str= "Xtrain",
         dtype: torch.dtype = torch.float32,
     ):
-        self._data = np.array(scipy.io.loadmat(source)["Xtrain"])
+        self._data = np.array(scipy.io.loadmat(source)[partition])
         if n_signals > 1:
             trimmed = self._data[:len(self._data) -len(self._data) % n_signals]
             self._data = trimmed.reshape(-1, n_signals)

@@ -221,7 +221,6 @@ def val_epoch(
     return \
         val_loss, \
         {key: np.mean(value) for key, value in val_metrics.items()}
-    
 
 def evaluate(
     dataloader: DataLoader, 

@@ -22,7 +22,7 @@ class Baseline(BaseModel):
 
     # Fixed constants to configure a baseline MLP.
     _HIDDEN_NEURONS: int = 3
-    _OUTPUT_NEURONS: int = 1
+    _OUTPUT_NEURONS: int = 7
 
     def __init__(
         self,
@@ -38,10 +38,10 @@ class Baseline(BaseModel):
         :param input_size: Number of signals per timestep (``n_signals``
             in the config).  For this dataset this is 1.
         :type input_size: int
-        :param hidden_size: Ignored – the hidden layer is always 3 neurons.
+        :param hidden_size: Ignored. The hidden layer is always 3 neurons.
             Kept for API compatibility with the other model classes.
         :type hidden_size: int
-        :param num_layers: Ignored – there is always exactly 1 hidden layer.
+        :param num_layers: Ignored. There is always exactly 1 hidden layer.
             Kept for API compatibility with the other model classes.
         :type num_layers: int
         :param logger: Logger to log to.
@@ -67,19 +67,18 @@ class Baseline(BaseModel):
                 "but is ignored. There is always exactly 1 hidden layer."
             )
 
-        # The flattened input size: window_size timesteps × n_signals features.
+        # The flattened input size: window_size timesteps x n_signals features.
         # With window_size=3 and n_signals=1 this is exactly 3.
         self._flat_input_size: int = window_size * input_size
 
         self.backbone = nn.Sequential(
-            # Hidden layer: flat_input → 3 neurons, ReLU.
+            # Hidden layer: flat_input -> 3 neurons, ReLU.
             nn.Linear(self._flat_input_size, self._HIDDEN_NEURONS),
             nn.ReLU(),
         )
 
-        # Output layer: 3 neurons → 1 prediction.
-        # No activation on the output – we are predictin
-        # g a continuous value.
+        # Output layer: 3 neurons -> 1 prediction.
+        # No activation on the output we are predicting a continuous value.
         self.head = nn.Linear(self._HIDDEN_NEURONS, self._OUTPUT_NEURONS)
 
         self._initialise_weights()
