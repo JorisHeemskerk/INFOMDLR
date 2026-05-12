@@ -1,0 +1,80 @@
+# DISCLAIMER: 
+# This code was previously part of Joris Heemskerks Bachelors thesis, 
+# and is being re-used here. All rights are reserved to Joris Heemskerk, 
+# and Technolution BV, Gouda NL. Joris was granted the rights to use and 
+# modify this code, at the express notion that a disclaimer was put in.
+
+# Default environment yaml file
+# NOTE: See assignment_1/config/config_validation_template.py for the 
+# parameter restrictions.
+
+general:
+    num_data_workers: 1 # Number of workers preparing batches.
+jobs:
+    # job0:
+    #     model: "rnn" # Can be from: [lstm, rnn, transformer, all]
+    #     # dataset: "assignment_1/Xtrain.mat"
+    #     dataset: "assignment_1/Xtrain_interpolated_7.mat"
+    #     window_size: [60]
+    #     stride: [1]
+    #     n_signals: 7
+    #     hidden_size: [40]
+    #     num_layers: [3]
+    #     optimiser: "adam"
+    #     weight_decay: [0.0001]
+    #     train_val_split: [.8, .2]
+    #     batch_size: [8]
+    #     n_epochs: 100
+    #     learning_rate: [0.0001]
+    # job1:
+    #     model: "lstm" # Can be from: [rnn, lstm, transformer, baseline, all]
+    #     # dataset: "assignment_1/Xtrain.mat"
+    #     dataset: "assignment_1/Xtrain_interpolated_7.mat"
+    #     window_size: [60]
+    #     stride: [1]
+    #     n_signals: 7
+    #     hidden_size: [100]
+    #     num_layers: [1]
+    #     optimiser: "adam"
+    #     weight_decay: [0.0000001]
+    #     train_val_split: [.8, .2]
+    #     batch_size: [8]
+    #     n_epochs: 100
+    #     learning_rate: [0.001]
+    job2:
+        model: "transformer" # Can be from: [lstm, rnn, transformer, all]
+        # dataset: "assignment_1/Xtrain.mat"
+        dataset: "assignment_1/Xtrain_interpolated_7.mat"
+        window_size: [60]
+        stride: [1]
+        n_signals: 7
+        hidden_size: [80]
+        num_layers: [2]
+        optimiser: "adam"
+        weight_decay: [0.00001]
+        train_val_split: [.8, .2]
+        batch_size: [6]
+        n_epochs: 1000
+        learning_rate: [0.0005]
+    # job3:
+    #     model: "baseline"
+    #     dataset: "assignment_1/Xtrain_interpolated_7.mat"
+    #     # window_size is 3 for the model to serve as the baseline
+    #     window_size: [3]
+    #     stride: [1]
+    #     n_signals: 7
+    #     # hidden_size and num_layers are ignored by MLPBaseline (fixed at 3
+    #     # neurons / 1 hidden layer per spec), but must be present for schema
+    #     # validation.
+    #     hidden_size: [3]
+    #     num_layers: [1]
+    #     optimiser: "adam"
+    #     # A small weight decay (1e-4) prevents over-fitting on this
+    #     # very small model without noticeably slowing convergence.
+    #     weight_decay: [0.0001]
+    #     train_val_split: [.8, .2]
+    #     batch_size: [16]
+    #     n_epochs: 200
+    #     # lr=1e-3 is the standard Adam default and works well for small MLPs.
+    #     # 200 epochs is enough for a baseline model.
+    #     learning_rate: [0.001]
