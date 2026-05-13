@@ -20,6 +20,7 @@ modify this code, at the express notion that a disclaimer was put in.
             input_size: _
             window_size: _
             stride: _
+            downsample_factor: _
             num_layers: _
             optimiser: _
             weight_decay: _
@@ -68,9 +69,12 @@ CONFIG_TEMPLATE = {
                             'items': {'type': 'number'},
                             'minItems': 1
                         },
-                        'n_signals': {
+                        'downsample_factor': {
                             'type': 'number', 
                             'minimum': 1
+                        },
+                        'lazy': {
+                            'type': 'boolean', 
                         },
                         'hidden_size': {
                             'type': 'array',
@@ -115,7 +119,8 @@ CONFIG_TEMPLATE = {
                         'model',
                         'window_size',
                         'stride',
-                        'n_signals',
+                        'downsample_factor',
+                        'lazy',
                         'hidden_size',
                         'num_layers',
                         'optimiser',

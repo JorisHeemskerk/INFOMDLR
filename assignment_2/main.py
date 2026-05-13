@@ -31,9 +31,24 @@ from lstm import LSTM
 from rnn import RNN
 from transformer import Transformer
 from baseline import Baseline
-from timeseries_dataset import TimeseriesDataset
+from meg_dataset import MEGDataset
 from train import train, evaluate, METRICS
 from visualise import visualise_training, visualise_tuning, visualise_future
+
+DATASET_MAPPING = {
+    "intra": {
+        "train" : "assignment_2/data/Intra/train/",
+        "test" : "assignment_2/data/Intra/test/"
+    },
+    "cross": {
+        "train" : "assignment_2/data/Cross/train/",
+        "test" : [
+            "assignment_2/data/Cross/test1/", 
+            "assignment_2/data/Cross/test2/", 
+            "assignment_2/data/Cross/test3/", 
+        ]
+    },
+}
 
 
 def _process_job(
@@ -58,9 +73,11 @@ def _process_job(
     """
     ############ Change output dir to specific job folder. #############
     handle_output.OUTPUT_DIR = f"{handle_output.OUTPUT_DIR}job_{job_id}/" if \
-        job_id == 0 else "/".join(
-            handle_output.OUTPUT_DIR.split("/")[:-2]
-        ) + f"/job_{job_id}/"
+        job_id == 0 else "/".join((
+                handle_output.OUTPUT_DIR.split("/")[:-2] if 
+                    "run" not in handle_output.OUTPUT_DIR else 
+                    handle_output.OUTPUT_DIR.split("/")[:-3]
+        )) + f"/job_{job_id}/"
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     job_output_dir = handle_output.OUTPUT_DIR
 
@@ -154,22 +171,22 @@ def _process_run(
     ####################################################################
     #                          Load the data.                          #
     ####################################################################
-    dataset = TimeseriesDataset(
-        source=run["dataset"],
+    dataset = MEGDataset(
+        data_dirs=DATASET_MAPPING[run["dataset"].lower()]["train"],
         window_size=run["window_size"],
         stride=run["stride"],
-        n_signals=run["n_signals"],
-        partition="Xtrain"
+        downsample_factor=run["downsample_factor"],
+        lazy=run["lazy"],
     )
     logger.debug(f"Dataset size: {len(dataset)}")
-    logger.debug(f"Shape of first data x element: {dataset[0][0].shape}")
-    logger.debug(f"Shape of first data y element: {dataset[0][1].shape}")
-    test_data = TimeseriesDataset(
-        source="assignment_1/Xtest.mat",
+    logger.debug(f"Shape of first x element: {dataset[0][0].shape}")
+    logger.debug(f"Shape of first y element: {dataset[0][1].shape}")
+    test_data = MEGDataset(
+        data_dirs=DATASET_MAPPING[run["dataset"].lower()]["test"],
         window_size=1,
         stride=1,
-        n_signals=1,
-        partition="Xtest"
+        downsample_factor=run["downsample_factor"],
+        lazy=run["lazy"],
     )
     logger.debug(f"Test dataset size: {len(test_data)}")
     logger.debug("Note that this set is not normalised.")
@@ -187,24 +204,27 @@ def _process_run(
         random_state=42
     )
     # Normalise based on only the train partition.
+    logger.debug("Fitting normalisation.")
     dataset.fit_normalisation(train_idx)
     logger.debug(
         f"Normalisation fitted on training set: "
-        f"mean={dataset.mean:.4f}, std={dataset.std:.4f}"
+        f"mean={dataset.mean}, std={dataset.std}"
     )
 
+    logger.debug("Creating subsets.")
     train_dataset = torch.utils.data.Subset(dataset, train_idx)
     val_dataset = torch.utils.data.Subset(dataset, val_idx)
     logger.debug(f"{len(train_dataset) = }, {len(val_dataset) = }")
 
     ########## Convert DataSet objects to DataLoader objects. ##########
+    logger.debug("converting to dataloaders")
     train_dataloader, val_dataloader = to_dataloaders(
         [train_dataset, val_dataset], 
         batch_sizes=[run["batch_size"]] * 2, 
         shuffles=[True, False],
         logger=logger,
         num_workers=CONFIG["general"]["num_data_workers"],
-        pin_memory=True,
+        pin_memory=True, # TODO: check if this should be replaced with run["lazy"]
         persistent_workers=True
     )
 
@@ -244,8 +264,8 @@ def _process_run(
 def _process_model(
     run: dict[str, Any], 
     model_id: int | None, 
-    dataset: TimeseriesDataset,
-    test_data: TimeseriesDataset,
+    dataset: MEGDataset,
+    test_data: MEGDataset,
     train_dataloader: DataLoader[Any], 
     val_dataloader: DataLoader[Any],
     logger: logging.Logger
@@ -262,9 +282,9 @@ def _process_model(
         models are being trained for a run).
     :type model_id: int | None
     :param dataset: the dataset.
-    :type dataset: TimeseriesDataset
+    :type dataset: MEGDataset
     :param test_data: Test dataset.
-    :type test_data: TimeseriesDataset
+    :type test_data: MEGDataset
     :param train_dataloader: Dataloader for training data.
     :type train_dataloader: DataLoader[Any]
     :param val_dataloader: Dataloader for validation data.
@@ -289,25 +309,25 @@ def _process_model(
     logger.debug(f"Initialising the model ({run['model']})")
     models = {
         "lstm": (LSTM, {
-            "input_size": run["n_signals"],
+            "input_size": dataset.get_n_sensors(),
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
             "logger": logger
         }),
         "rnn": (RNN, {
-            "input_size": run["n_signals"],
+            "input_size": dataset.get_n_sensors(),
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
             "logger": logger
         }),
         "transformer": (Transformer, {
-            "input_size": run["n_signals"],
+            "input_size": dataset.get_n_sensors(),
             "hidden_size": run["hidden_size"],
             "num_layers": run["num_layers"],
             "logger": logger
         }),
         "baseline": (Baseline, {
-        "input_size": run["n_signals"],
+        "input_size": dataset.get_n_sensors(),
         "hidden_size": run["hidden_size"],
         "num_layers": run["num_layers"],
         "logger": logger,
@@ -575,7 +595,7 @@ if __name__ == "__main__":
         '--config', 
         dest='config_file_path', 
         type=str, 
-        default="assignment_1/config/config.yaml", 
+        default="assignment_2/config/config.yaml", 
         help="Path to config file. (default: %(default)s)"
     )
     parser.add_argument(
@@ -593,7 +613,7 @@ if __name__ == "__main__":
     # Initialise Logger.
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     logger = create_logger(
-        name="Deep Learning - Assignment 1", 
+        name="Deep Learning - Assignment 2", 
         output_log_file_name=f"{handle_output.OUTPUT_DIR}process.log"
     )
     logger.info(f"Provided commandline arguments: {args.__dict__}")
