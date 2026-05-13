@@ -8,14 +8,13 @@ import argparse
 import copy
 import logging
 import os
-import math
-import scipy.io
 import shutil
 import torch
 import traceback
 import yaml
 
 from jsonschema import validate, ValidationError
+import numpy as np
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader
@@ -26,14 +25,10 @@ import handle_output
 from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
-from early_stopper import EarlyStopper
-from lstm import LSTM
-from rnn import RNN
-from transformer import Transformer
 from baseline import Baseline
-from meg_dataset import MEGDataset
-from train import train, evaluate, METRICS
-from visualise import visualise_training, visualise_tuning, visualise_future
+from meg_dataset import MEGDataset, LABEL_MAP
+from train import train_cross_validation, train, evaluate
+from visualise import visualise_training, visualise_tuning
 
 DATASET_MAPPING = {
     "intra": {
@@ -131,7 +126,7 @@ def _process_job(
         run_description = copy.deepcopy(job)
         for tune_key in tunable_job_keys:
             run_description[tune_key] = job[tune_key][0]
-        results = _process_run(
+        _process_run(
             run=run_description,
             run_id=None, 
             logger=logger
@@ -183,7 +178,7 @@ def _process_run(
     logger.debug(f"Shape of first y element: {dataset[0][1].shape}")
     test_data = MEGDataset(
         data_dirs=DATASET_MAPPING[run["dataset"].lower()]["test"],
-        window_size=1,
+        window_size=run["window_size"],
         stride=1,
         downsample_factor=run["downsample_factor"],
         lazy=run["lazy"],
@@ -208,7 +203,7 @@ def _process_run(
     dataset.fit_normalisation(train_idx)
     logger.debug(
         f"Normalisation fitted on training set: "
-        f"mean={dataset.mean}, std={dataset.std}"
+        f"mean[:2]={dataset.mean[:2]}, std[:2]={dataset.std[:2]}"
     )
 
     logger.debug("Creating subsets.")
@@ -228,6 +223,15 @@ def _process_run(
         persistent_workers=True
     )
 
+    test_dataloader = to_dataloaders(
+        [test_data], 
+        batch_sizes=[run["batch_size"]], 
+        shuffles=[False],
+        logger=logger,
+        num_workers=0,
+        pin_memory=False,
+    )[0]
+
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
         MODELS = ["lstm", "rnn", "transformer"]
@@ -238,10 +242,10 @@ def _process_run(
             model_results = _process_model(
                 model_specific_run, 
                 model_id, 
-                dataset,
                 test_data,
                 train_dataloader, 
                 val_dataloader, 
+                test_dataloader,
                 logger
             )
             all_model_results[model] = model_results
@@ -254,10 +258,10 @@ def _process_run(
         return {run["model"]: _process_model(
             run, 
             None, 
-            dataset,
             test_data,
             train_dataloader, 
             val_dataloader, 
+            test_dataloader, 
             logger
         )}
 
@@ -265,11 +269,11 @@ def _process_model(
     run: dict[str, Any], 
     model_id: int | None, 
     dataset: MEGDataset,
-    test_data: MEGDataset,
     train_dataloader: DataLoader[Any], 
     val_dataloader: DataLoader[Any],
+    test_dataloader: DataLoader[Any],
     logger: logging.Logger
-)-> tuple[float, float, float, float]:
+)-> tuple[float, float]:
     """
     Applies dataset to specific model. 
     
@@ -283,16 +287,16 @@ def _process_model(
     :type model_id: int | None
     :param dataset: the dataset.
     :type dataset: MEGDataset
-    :param test_data: Test dataset.
-    :type test_data: MEGDataset
     :param train_dataloader: Dataloader for training data.
     :type train_dataloader: DataLoader[Any]
     :param val_dataloader: Dataloader for validation data.
     :type val_dataloader: DataLoader[Any]
+    :param test_dataloader: Dataloader for test data.
+    :type test_dataloader: DataLoader[Any]
     :param logger: Logger to log to.
     :type logger: logging.Logger
-    :returns: In order, the training and validation MAEs, then the MSEs.
-    :rtype: tuple[float, float, float, float]
+    :returns: In order, the training and validation accuracies.
+    :rtype: tuple[float, float]
     """
     ############ Change output dir to specific run folder. #############
     if model_id is not None:
@@ -308,31 +312,16 @@ def _process_model(
     ####################################################################
     logger.debug(f"Initialising the model ({run['model']})")
     models = {
-        "lstm": (LSTM, {
-            "input_size": dataset.get_n_sensors(),
-            "hidden_size": run["hidden_size"],
-            "num_layers": run["num_layers"],
-            "logger": logger
-        }),
-        "rnn": (RNN, {
-            "input_size": dataset.get_n_sensors(),
-            "hidden_size": run["hidden_size"],
-            "num_layers": run["num_layers"],
-            "logger": logger
-        }),
-        "transformer": (Transformer, {
-            "input_size": dataset.get_n_sensors(),
-            "hidden_size": run["hidden_size"],
-            "num_layers": run["num_layers"],
-            "logger": logger
-        }),
-        "baseline": (Baseline, {
-        "input_size": dataset.get_n_sensors(),
-        "hidden_size": run["hidden_size"],
-        "num_layers": run["num_layers"],
-        "logger": logger,
-        "window_size": run["window_size"], 
-        })
+        "baseline": (
+            Baseline, {
+                "network_shape": [
+                    dataset.get_n_sensors() * run["window_size"], 
+                    *([run["hidden_size"]] * run["num_layers"]),
+                    len(LABEL_MAP),
+                ],
+                "logger": logger,
+            }
+        )
     }
     model = None
     for name, (cls, kwargs) in models.items():
@@ -371,86 +360,76 @@ def _process_model(
     ####################################################################
     #                         Train the model.                         #
     ####################################################################
-    # SCHEDULER = None
-    # SCHEDULER = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    #     OPTIMISER, 
-    #     mode='min', 
-    #     patience=10, 
-    #     factor=0.5
-    # )
-    LOSS_FN = nn.MSELoss()
-    # EARLY_STOPPER = EarlyStopper(15, 0.01)
+    LOSS_FN = nn.CrossEntropyLoss()
 
     # Arguments used by both normal training and cross_validation
     arguments = {
         "model" : model,
         "loss_fn" : LOSS_FN,
         "optimiser": OPTIMISER,
-        # "scheduler" : SCHEDULER,
-        # "early_stopper" : EARLY_STOPPER,
         "n_epochs" : run["n_epochs"],
         "device" : DEVICE,
         "logger" : logger
     }
 
-    train_losses, train_metrics, val_losses, val_metrics, model = train(
-        train_dataloader=train_dataloader, 
-        val_dataloader=val_dataloader,
-        **arguments
-    )
-    # Denormalise if stats are provided.
-    if dataset.std is not None:
-        new_containers = [{}, {}]
-        for i, normalised_metrics in enumerate([train_metrics, val_metrics]):
-            for metric, values in normalised_metrics.items():
-                new_containers[i][metric] = []
-                for value in values:
-                    if metric == "MAE":
-                         new_containers[i][metric].append(value * dataset.std)
-                    elif metric == "MSE":
-                         new_containers[i][metric].append(
-                            value * dataset.std**2
-                        )
-                    else:
-                        logger.error(
-                            "Metric provided cannot be denormalised: "
-                            f"{metric = }"
-                        )
-        train_metrics = new_containers[0] 
-        val_metrics = new_containers[1]
+    ################ Don't use k-fold cross validation #################
+    if run["k_folds"] == 1:
+        # Train it the normal way.
+        train_losses, train_metrics, val_losses, val_metrics, model = train(
+            train_dataloader=train_dataloader, 
+            val_dataloader=val_dataloader,
+            **arguments
+        )
+        train_losses_std, train_metrics_std = None, None
+        val_losses_std, val_metrics_std = None, None
+    else:
+    ################### Use k-fold cross validation ####################
+        train_lossess, train_metricss, val_lossess, val_metricss, model=\
+            train_cross_validation(
+                full_train_dataset=dataset, 
+                k_folds=run["k_folds"],
+                dataset_to_dataloader_function=lambda dataset: to_dataloaders(
+                    datasets=[dataset],
+                    batch_sizes=run["batch_size"],
+                    shuffles=[False],
+                    logger=logger
+                ),
+                **arguments
+            )
+        
+        train_losses = np.mean(train_lossess, axis=0)
+        train_losses_std = np.std(train_lossess, axis=0)
+
+        train_metrics = {
+            k : np.mean(v, axis=0) for k, v in train_metricss.items()
+        }
+        train_metrics_std = {
+            k : np.std(v, axis=0) for k, v in train_metricss.items()
+        }
+
+        val_losses = np.mean(val_lossess, axis=0)
+        val_losses_std = np.std(val_lossess, axis=0)
+        
+        val_metrics = {
+            k : np.mean(v, axis=0) for k, v in val_metricss.items()
+        }
+        val_metrics_std = {
+            k : np.std(v, axis=0) for k, v in val_metricss.items()
+        }
 
     # Save the best performing model (based on the validation set).
     model.save(handle_output.OUTPUT_DIR)
+
     ####################################################################
     #                         Show the results.                        #
     ####################################################################
-    ########### Log the training and validation scores. ###########
-    train_mae, train_mse = evaluate(
-        train_dataloader,
-        model,
-        DEVICE,
-        logger,
-        mean=dataset.mean,
-        std=dataset.std
+    logger.critical(
+        f"Best training accuracy: {max(train_metrics["accuracy"])}, achieved "
+        f"during epoch {np.argmax(train_metrics["accuracy"]) + 1}.\nBest "
+        f"validation accuracy: {max(val_metrics["accuracy"])}, achieved during"
+        f" epoch {np.argmax(val_metrics["accuracy"]) + 1}."
     )
 
-    logger.critical(
-        f"Train results: \nMAE: {train_mae:<2f} | MSE: {train_mse:<2f}"
-    )
-
-    val_mae, val_mse = evaluate(
-        val_dataloader,
-        model,
-        DEVICE,
-        logger,
-        mean=dataset.mean,
-        std=dataset.std
-    )
-    
-    logger.critical(
-        f"Validation results: \nMAE: {val_mae:<2f} | MSE: {val_mse:<2f}"
-    )
-    
     ################# Plot the predicted and real values ###############
     visualise_training(
         train_losses, 
@@ -458,91 +437,26 @@ def _process_model(
         val_losses, 
         val_metrics,
         handle_output.OUTPUT_DIR,
+        train_losses_std,
+        train_metrics_std,
+        val_losses_std,
+        val_metrics_std
     )
 
     ####################################################################
-    #                  Predict 200 future datapoints.                  #
+    #                         Test the model.                          #
     ####################################################################
-    logger.info("Predicting 200 future elements.")
-    
-    try:
-       interpolation_factor = int(run["dataset"].split(".")[-2].split("_")[-1]) # NOTE: only works if the number is the final, sole, element in the name of the dataset and it is preceded by an underscore.
-    except ValueError:
-        interpolation_factor = 1
+    # logger.info("Evaluating on test set.")
+    # logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING")
+    # test_accuracy = evaluate(
+    #     dataloader=test_dataloader, 
+    #     model=model,
+    #     device=DEVICE,
+    #     logger=logger,
+    # )
+    # logger.critical(f"Test accuracy: {test_accuracy}")
 
-    x, y = dataset[-1]
-    window = torch.cat(
-        (x[1:, :], y.reshape((1, run["n_signals"]))), dim=0
-    ).unsqueeze(0).to(DEVICE)
-    
-    predictions = []
-    with torch.no_grad():
-        for _ in range(200):
-            pred = model(window)
-            predictions.append(pred)
-            window = torch.cat([window[:, 1:, :], pred.unsqueeze(1)], dim=1)
-
-    future_predictions = torch.stack(predictions).reshape(-1)
-
-    # denormalise
-    if dataset.mean is not None and dataset.std is not None:
-        future_predictions = future_predictions * dataset.std + dataset.mean
-
-    logger.debug("Comparing the future predictions with the test dataset.")
-    
-    
-    # Only every `interpolation_factor`-th prediction aligns with a test point.
-    all_data = torch.tensor(scipy.io.loadmat(run['dataset'])["Xtrain"]).cpu()
-    n_skipped_predictions = int(
-        (len(all_data) / interpolation_factor) % run['n_signals']
-    )
-    
-    aligned_predictions = []
-    for i in range(
-        0, 
-        len(future_predictions), 
-        interpolation_factor*run["n_signals"]
-    ):
-        aligned_predictions.append(
-            future_predictions[
-                i + n_skipped_predictions : 
-                i + n_skipped_predictions + run["n_signals"]
-            ]
-        )
-    
-    aligned_predictions = torch.stack(aligned_predictions).reshape(-1).to(
-        future_predictions.device
-    )[:200]
-    test_tensor = torch.tensor(test_data._data).squeeze(-1).to(
-        future_predictions.device
-    )
-    
-    assert len(aligned_predictions) == len(test_tensor), \
-        "Mismatch between prediction and test lengths " \
-        f"({len(aligned_predictions) } != {len(test_tensor)})"
-    test_mae, test_mse = tuple([
-        f(aligned_predictions, test_tensor).item() for f in METRICS.values()
-    ])
-    
-    logger.critical(
-        f"Test results: \nMAE: {test_mae:<2f} | MSE: {test_mse:<2f}"
-    )
-
-    logger.debug("Visualising the future predictions")
-
-    # torch.save(all_data, 'all_data.pt')
-    # torch.save(future_predictions, 'future_predictions.pt')
-    # torch.save(test_tensor, "test_tensor.pt")
-
-    visualise_future(
-        past=all_data[-200*run["n_signals"]:],
-        future_pred=future_predictions.cpu(),
-        future_true=test_tensor.cpu(),
-        interpolation_factor=interpolation_factor,
-        output_dir=handle_output.OUTPUT_DIR
-    )
-
-    return train_mae, val_mae, train_mse, val_mse
+    return max(train_metrics["accuracy"]), max(val_metrics["accuracy"])
 
 def main()-> None:
     ####################################################################

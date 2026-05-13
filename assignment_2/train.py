@@ -10,14 +10,138 @@ import torch
 
 import numpy as np
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset, Subset
 from tqdm import tqdm
+from typing import Callable
+
 
 METRICS = {
-    "MAE": torch.nn.functional.l1_loss, 
-    "MSE": torch.nn.functional.mse_loss
+    "accuracy": lambda y_hat, y: (y_hat.argmax(dim=-1) == y).float().mean(),
 }
 
+def train_cross_validation(
+    full_train_dataset: Dataset,
+    k_folds: int,
+    dataset_to_dataloader_function: Callable,
+    model: nn.Module,
+    loss_fn: nn.Module,
+    optimiser: torch.optim.Optimizer,
+    n_epochs: int,
+    device: str,
+    logger: logging.Logger,
+) -> tuple[
+    np.ndarray,
+    dict[str, np.ndarray],
+    np.ndarray,
+    dict[str, np.ndarray],
+    nn.Module,
+]:
+    """
+    Train a model for `n_epochs` epochs using k-fold cross validation.
+
+    :param full_train_dataset: Dataset to train with.
+    :type full_train_dataset: Dataset
+    :param k_folds: The number of folds to use.
+    :type k_folds: int
+    :param dataset_to_dataloader_function: Function that converts a 
+        Dataset into a DataLoader.
+    :type dataset_to_dataloader_function: Callable
+    :param model: Model to train.
+    :type model: nn.Module
+    :param loss_fn: Loss function to update gradients with.
+    :type loss_fn: nn.Module
+    :param optimiser: Optimiser used for backpropagation.
+    :type optimiser: torch.optim.Optimizer
+    :param n_epochs: Number of epochs to train for.
+    :type n_epochs: int
+    :param device: Device to move data to.
+    :type device: str
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    :return: Per-fold, per-epoch train losses and metrics and validation
+        losses and metrics as numpy arrays, along with the model 
+        checkpoint that achieved the best validation loss across all 
+        folds.
+    :rtype: tuple[
+        np.ndarray,
+        dict[str, np.ndarray],
+        np.ndarray,
+        dict[str, np.ndarray],
+        nn.Module
+    ]
+    """
+    best = None
+    best_val_loss = float("inf")
+
+    train_losses_per_fold: list[list[float]] = []
+    val_losses_per_fold: list[list[float]] = []
+    train_metrics_per_fold: list[dict[str, list[float]]] = []
+    val_metrics_per_fold: list[dict[str, list[float]]] = []
+
+    # Save initial states so every fold starts from the same weights.
+    initial_model_state = copy.deepcopy(model.state_dict())
+    initial_optimiser_state = copy.deepcopy(optimiser.state_dict())
+
+    fold_size = len(full_train_dataset) // k_folds
+    for k in range(k_folds):
+        logger.info(f"-----===== Fold {k+1}/{k_folds} =====-----")
+
+        model.load_state_dict(copy.deepcopy(initial_model_state))
+        optimiser.load_state_dict(copy.deepcopy(initial_optimiser_state))
+
+        val_idx = list(range(k * fold_size, (k + 1) * fold_size))
+        train_idx = (
+            list(range(0, k * fold_size))
+            + list(range((k + 1) * fold_size, len(full_train_dataset)))
+        )
+
+        train_dataloader = dataset_to_dataloader_function(
+            Subset(full_train_dataset, train_idx)
+        )[0]
+        val_dataloader = dataset_to_dataloader_function(
+            Subset(full_train_dataset, val_idx)
+        )[0]
+
+        train_losses, train_metrics, val_losses, val_metrics, _ = train(
+            train_dataloader=train_dataloader,
+            val_dataloader=val_dataloader,
+            model=model,
+            loss_fn=loss_fn,
+            optimiser=optimiser,
+            n_epochs=n_epochs,
+            device=device,
+            logger=logger,
+        )
+
+        # Track the model from the fold with the lowest mean val loss.
+        fold_mean_val_loss = float(np.mean(val_losses))
+        if fold_mean_val_loss < best_val_loss:
+            best_val_loss = fold_mean_val_loss
+            best = copy.deepcopy(model.state_dict())
+
+        train_losses_per_fold.append(train_losses)
+        val_losses_per_fold.append(val_losses)
+        train_metrics_per_fold.append(train_metrics)
+        val_metrics_per_fold.append(val_metrics)
+
+    model.load_state_dict(best)
+
+    train_metrics_combined = {
+        k: np.array([fold[k] for fold in train_metrics_per_fold])
+        for k in METRICS
+    }
+    val_metrics_combined = {
+        k: np.array([fold[k] for fold in val_metrics_per_fold])
+        for k in METRICS
+    }
+
+    return (
+        np.array(train_losses_per_fold),
+        train_metrics_combined,
+        np.array(val_losses_per_fold),
+        val_metrics_combined,
+        model,
+    )
 
 def train(
     train_dataloader: DataLoader, 
@@ -156,10 +280,10 @@ def train_epoch(
         for metric, method in METRICS.items():
             train_metrics[metric].append(method(y_hat, y).item())
 
-        if batch % 20 == 0:
+        if batch % 100 == 0:
             current = batch * len(y) + len(X)
             metrics_string = ", ".join(
-                f"(normalised) {metric}: {np.mean(train_metrics[metric]):>2f}"
+                f"{metric}: {np.mean(train_metrics[metric]):>2f}"
                 for metric in METRICS.keys()
             )
             logger.debug(
@@ -213,7 +337,7 @@ def val_epoch(
             
     val_loss = total_loss / len(dataloader)
     metrics_string = ", ".join(
-        f"(normalised) {metric}: {np.mean(val_metrics[metric]):>2f}"
+        f"{metric}: {np.mean(val_metrics[metric]):>2f}"
         for metric in METRICS.keys()
     )
     logger.debug(f"Avg loss: {val_loss:>8f} | {metrics_string} |\n\033[37m")
@@ -227,11 +351,9 @@ def evaluate(
     model: nn.Module,
     device: str,
     logger: logging.Logger,
-    mean: float | None=None,
-    std: float | None=None,
-)-> tuple[float, float]:
+)-> tuple[float]:
     """
-    Evaluate a model by calculating the MAE and MSE on a dataset.
+    Evaluate a model by calculating the METRICS on a dataset.
 
     :param dataloader: Dataset to validate with.
     :type dataloader: DataLoader
@@ -241,30 +363,22 @@ def evaluate(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
-    :param mean: Mean to denormalise with.
-    :type mean: float | None
-    :param std: Standard deviation to denormalise with.
-    :type std: float | None
-    :return: MAE and MSE on the dataset
-    :rtype: tuple[float, float]
+    :return: METRICS on the dataset
+    :rtype: tuple[float]
     """
     model.eval()
     predictions = []
     targets = []
 
     with torch.no_grad():
-        for x, y in dataloader:
+        for x, y in tqdm(dataloader, desc="Evaluating batches"):
             x = x.to(device)
-            pred = model(x).squeeze(-1)
-            predictions.append(pred.cpu())
-            targets.append(y.squeeze(-1).cpu())
+            y_hat = model(x).squeeze(-1)
 
+            targets.append(y.cpu())
+            predictions.append(y_hat.cpu())
+        
     predictions = torch.cat(predictions)
     targets = torch.cat(targets)
-
-    # Denormalise if stats are provided.
-    if mean is not None and std is not None:
-        predictions = predictions * std + mean
-        targets = targets * std + mean
 
     return tuple([f(predictions, targets).item() for f in METRICS.values()])

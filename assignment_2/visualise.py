@@ -86,7 +86,7 @@ def visualise_training(
         ax_metrics[i].set_xlabel("Epochs")
         ax_metrics[i].set_ylabel(f"{metrics_description}")
         ax_metrics[i].legend()
-    fig_metrics.suptitle(f"Mean Average Precisions during training.")
+    fig_metrics.suptitle(f"Performance during training.")
     plt.tight_layout()
     plt.savefig(f"{output_dir}training_results.png")
     plt.close(fig_metrics)
@@ -195,71 +195,3 @@ def visualise_tuning(
         f"{'__' + models[0].upper() if len(models) == 1 else ''}.png"
     )
     plt.close(fig)
-
-def visualise_future(
-    past: torch.Tensor,
-    future_pred: torch.Tensor,
-    future_true: torch.Tensor,
-    interpolation_factor: int,
-    output_dir: str
-)-> None:
-    """
-    Visualise future predictions.
-
-    :param past: Original dataset (ground truth).
-    :type past: torch.Tensor
-    :param future_pred: Predicted future predictions.
-    :type future_pred: torch.Tensor
-    :param future_true: Ground truth future predictions.
-    :type future_true: torch.Tensor
-    :param interpolation_factor: Factor by which the training data was
-        interpolated. Every `interpolation_factor`-th prediction 
-        corresponds to one ground-truth test point.
-    :type interpolation_factor: str
-    :param output_dir: Where to save the image to.
-    :type output_dir: str
-    """
-    fig, ax = plt.subplots(1, 1, figsize=(14, 6), sharex=False)
-
-    
-    x_orig = np.arange(len(past))
-    x_new = np.linspace(len(past), len(past) + len(future_pred), len(future_pred))
-    
-    # Test points sit at every `interpolation_factor`-th step in pred-space.
-    x_true = x_new[::interpolation_factor]
-
-    
-    ax.plot(x_orig, past, "o", ms=2, zorder=3, color="C0")
-    ax.plot(x_orig, past, "-", lw=1.2, label="Original", alpha=0.8, color="C0")
-
-    ax.plot(x_true, future_true, "o", ms=2, zorder=3, color="C2")
-    ax.plot(
-        x_true, 
-        future_true, 
-        "-", 
-        lw=1.2, 
-        label="Ground truth", 
-        alpha=0.8, 
-        color="C2"
-    )
-
-    ax.plot(x_new, future_pred, "o", ms=2, zorder=3, color="C1")
-    ax.plot(
-        x_new, 
-        future_pred, 
-        "-", 
-        lw=1.2, 
-        label="Predicted", 
-        alpha=0.8, 
-        color="C1"
-    )
-    ax.set_title("Future predictions")
-    ax.set_xlabel("Data index")
-    ax.set_ylabel("Feature value")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}future_predictions.png")
-    plt.close(fig)
-

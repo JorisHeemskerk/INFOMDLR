@@ -11,4 +11,4 @@ import pytz
 date = datetime.datetime.now(
     tz=pytz.timezone('Europe/Amsterdam')
 ).strftime('%d-%m-%Y--%H-%M')
-OUTPUT_DIR = f"assignment_1/output/{date}/"
+OUTPUT_DIR = f"assignment_2/output/{date}/"

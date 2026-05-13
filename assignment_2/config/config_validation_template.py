@@ -109,6 +109,10 @@ CONFIG_TEMPLATE = {
                             'type': 'number', 
                             'minimum': 1
                         },
+                        'k_folds': {
+                            'type': 'number', 
+                            'minimum': 1
+                        },
                         'learning_rate': {
                             'type': 'array',
                             'items': {'type': 'number'},
@@ -128,7 +132,8 @@ CONFIG_TEMPLATE = {
                         'train_val_split',
                         'batch_size',
                         'n_epochs',
-                        'learning_rate'
+                        'k_folds',
+                        'learning_rate',
                     ],
                     'additionalProperties' : False
                 }

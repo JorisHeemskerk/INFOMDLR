@@ -12,17 +12,18 @@ general:
     num_data_workers: 1 # Number of workers preparing batches.
 jobs:
     job0:
-        model: "rnn" # Can be from: [lstm, rnn, transformer, all]
+        model: "baseline" # Can be from: [baseline, all]
         dataset: intra # Can be from [intra, cross]
         window_size: [200]
         stride: [50]
         downsample_factor: 4
         lazy: true
-        hidden_size: [40]
+        hidden_size: [64]
         num_layers: [3]
         optimiser: "adam"
         weight_decay: [0.0001]
         train_val_split: [.8, .2]
         batch_size: [8]
-        n_epochs: 100
+        n_epochs: 1
+        k_folds: 1
         learning_rate: [0.0001]
