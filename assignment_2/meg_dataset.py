@@ -55,7 +55,7 @@ class MEGDataset(Dataset):
 
         # Normalisation statistics – set via fit_normalisation().
         self.mean: Optional[np.ndarray] = None  # shape (n_sensors, 1)
-        self.std:  Optional[np.ndarray] = None  # shape (n_sensors, 1)
+        self.std: Optional[np.ndarray] = None  # shape (n_sensors, 1)
 
         if isinstance(data_dirs, str):
             data_dirs = [data_dirs]

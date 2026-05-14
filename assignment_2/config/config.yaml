@@ -15,11 +15,11 @@ jobs:
         model: "baseline" # Can be from: [baseline, all]
         dataset: intra # Can be from [intra, cross]
         window_size: [200]
-        stride: [50]
+        stride: [200]
         downsample_factor: 4
         lazy: true
         hidden_size: [64]
-        num_layers: [3]
+        num_layers: [1]
         optimiser: "adam"
         weight_decay: [0.0001]
         train_val_split: [.8, .2]

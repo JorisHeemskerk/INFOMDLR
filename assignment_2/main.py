@@ -27,7 +27,7 @@ from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
 from baseline import Baseline
 from meg_dataset import MEGDataset, LABEL_MAP
-from train import train_cross_validation, train, evaluate
+from train import train_cross_validation, train, evaluate, METRICS
 from visualise import visualise_training, visualise_tuning
 
 DATASET_MAPPING = {
@@ -119,6 +119,7 @@ def _process_job(
                     tune_param_name=key,
                     tune_param_values=values,
                     tune_results=tune_results,
+                    metric_names=list(METRICS.keys()),
                     output_dir=job_output_dir
                 ) 
     # If there were no instances of multiple parameters, run as 1 job.
@@ -205,6 +206,8 @@ def _process_run(
         f"Normalisation fitted on training set: "
         f"mean[:2]={dataset.mean[:2]}, std[:2]={dataset.std[:2]}"
     )
+    test_data.mean = dataset.mean
+    test_data.std = dataset.std
 
     logger.debug("Creating subsets.")
     train_dataset = torch.utils.data.Subset(dataset, train_idx)
@@ -447,7 +450,7 @@ def _process_model(
     #                         Test the model.                          #
     ####################################################################
     # logger.info("Evaluating on test set.")
-    # logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING")
+    # logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING!!")
     # test_accuracy = evaluate(
     #     dataloader=test_dataloader, 
     #     model=model,

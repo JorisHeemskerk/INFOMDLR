@@ -117,17 +117,20 @@ def visualise_tuning(
     tune_param_name: str,
     tune_param_values: list[Any],
     tune_results: list[dict[str, tuple[float, float, float, float]]],
+    metric_names: list[str],
     output_dir: str
 )-> None:
     """
-    Visualise MAE and MSE for the tuned parameters.
+    Visualise results for the tuned parameters.
 
     :param tune_param_name: The name for the parameter that was tuned.
     :type tune_param_name: str
     :param tune_param_values: The range of values for the results.
     :type tune_param_values: str
-    :param tune_results: Train and val MAE, and then MSE.
+    :param tune_results: Train and val metrics
     :type tune_results: list[dict[tuple[float, float, float, float]]]
+    :param metric_names: Names of the metrics (in order)
+    :type metric_names: list[str]
     :param output_dir: Where to save the images to.
     :type output_dir: str
     """
@@ -137,61 +140,40 @@ def visualise_tuning(
         for k in {k for d in tune_results for k in d}
     )
 
-    fig, ax = plt.subplots(nrows=1, ncols=2)
+    fig, ax = plt.subplots(nrows=1, ncols=len(metric_names))
+    if len(metric_names) == 1:
+        ax = [ax]
     for model in results.keys():
-        ax[0].plot(
-            tune_param_values, 
-            [t_mae for t_mae, _, _, _, in results[model]],
-            label=f"Train {model.upper()}"
-        )
-        ax[0].plot(
-            tune_param_values, 
-            [v_mae for _, v_mae, _, _, in results[model]],
-            label=f"Val {model.upper()}"
-        )
-        ax[0].scatter(
-            tune_param_values, 
-            [t_mae for t_mae, _, _, _, in results[model]],
-        )
-        ax[0].scatter(
-            tune_param_values, 
-            [v_mae for _, v_mae, _, _, in results[model]],
-        )
+        for i, metric in enumerate(metric_names):
+            ax[i].plot(
+                tune_param_values, 
+                [res[i] for res in results[model]],
+                label=f"Train {model.title()}"
+            )
+            ax[i].plot(
+                tune_param_values, 
+                [res[i + 1] for res in results[model]],
+                label=f"Val {model.title()}"
+            )
+            ax[i].scatter(
+                tune_param_values, 
+                [res[i] for res in results[model]],
+            )
+            ax[i].scatter(
+                tune_param_values, 
+                [res[i + 1] for res in results[model]],
+            )
 
-        ax[1].plot(
-            tune_param_values, 
-            [t_mse for  _, _, t_mse, _, in results[model]],
-            label=f"Train {model.upper()}"
-        )
-        ax[1].plot(
-            tune_param_values, 
-            [v_mse for _, _, _, v_mse in results[model]],
-            label=f"Val {model.upper()}"
-        )
-        ax[1].scatter(
-            tune_param_values, 
-            [t_mse for  _, _, t_mse, _, in results[model]],
-        )
-        ax[1].scatter(
-            tune_param_values, 
-            [v_mse for _, _, _, v_mse in results[model]],
-        )
-
-    ax[0].set_title(f"MAE for differing {tune_param_name}")
-    ax[0].set_xlabel(tune_param_name)
-    ax[0].set_ylabel("MAE")
-    ax[0].legend()
-
-    ax[1].set_title(f"MSE for differing {tune_param_name}")
-    ax[1].set_xlabel(tune_param_name)
-    ax[1].set_ylabel("MSE")
-    ax[1].legend()
+            ax[i].set_title(f"{metric} for differing {tune_param_name}")
+            ax[i].set_xlabel(tune_param_name)
+            ax[i].set_ylabel(metric)
+            ax[i].legend()
 
     fig.suptitle("Tuning results")
     plt.tight_layout()
     models = list(results.keys())
     plt.savefig(
         f"{output_dir}tuning_res__{tune_param_name}"
-        f"{'__' + models[0].upper() if len(models) == 1 else ''}.png"
+        f"{('__' + models[0].title()) if len(models) == 1 else ''}.png"
     )
     plt.close(fig)
