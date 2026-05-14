@@ -269,12 +269,13 @@ def train_epoch(
     for batch, (X, y) in enumerate(dataloader):
         X = X.to(device)
         y = y.squeeze(-1).to(device)
+
+        optimiser.zero_grad()
         y_hat = model(X).squeeze(-1)
         loss = loss_fn(y_hat, y)
 
         loss.backward()
         optimiser.step()
-        optimiser.zero_grad()
 
         total_loss += loss.item()
         for metric, method in METRICS.items():

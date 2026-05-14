@@ -13,7 +13,7 @@ general:
 jobs:
     job0:
         model: "baseline" # Can be from: [baseline, all]
-        dataset: intra # Can be from [intra, cross]
+        dataset: cross # Can be from [intra, cross]
         window_size: [200]
         stride: [200]
         downsample_factor: 4
