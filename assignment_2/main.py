@@ -12,6 +12,7 @@ import shutil
 import torch
 import traceback
 import yaml
+import optuna
 
 from jsonschema import validate, ValidationError
 import numpy as np
@@ -28,6 +29,7 @@ from data import to_dataloaders
 from baseline import Baseline
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
+from tune import tune_job, OptunaPruningCallback
 from visualise import visualise_training, visualise_tuning
 
 DATASET_MAPPING = {
@@ -76,6 +78,24 @@ def _process_job(
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     job_output_dir = handle_output.OUTPUT_DIR
 
+    # Hyperparameter tuning via bayesian optimization and hyperband pruning.
+    if job.get("tune", False):
+        logger.info(
+            f"[Job {job_id}] tune=true detected → running Optuna "
+            "Bayesian optimisation with Hyperband pruning."
+        )
+        tune_job(
+            job=job,
+            job_id=job_id,
+            build_run_fn=_run_for_optuna,
+            logger=logger,
+            n_trials=job.get("n_trials", 30),
+            n_startup_trials=job.get("n_startup_trials", 10),
+            direction="maximize",               # maximise val accuracy
+        )
+        return
+
+    # Hyperparameter tuning via sequential search.
     tunable_job_keys = [
         'window_size',
         'hidden_size',
@@ -133,10 +153,42 @@ def _process_job(
             logger=logger
         )
 
+def _run_for_optuna(
+    run: dict[str, Any],
+    trial_number: int,
+    logger: logging.Logger,
+    trial: optuna.Trial,
+) -> float:
+    """
+    Thin adapter called by ``tune_job`` for each Optuna trial.
+ 
+    Bridges between Optuna's interface and ``_process_run`` by:
+    * injecting a pruning callback, and
+    * returning only the scalar val-accuracy Optuna needs.
+ 
+    :param run: Fully-resolved run config for this trial (all params are
+        concrete scalars, not lists).
+    :param trial_number: Used as run_id for directory naming.
+    :param logger: Logger.
+    :param trial: Live Optuna trial (used for pruning).
+    :returns: Best validation accuracy achieved during the run.
+    """
+    pruning_callback = OptunaPruningCallback(trial, monitor="accuracy")
+    results = _process_run(
+        run=run,
+        run_id=trial_number,
+        logger=logger,
+        pruning_callback=pruning_callback
+    )
+    # logger.warning(f"{run = }")
+    # logger.warning(f"{results = }")
+    return results[run['model']][1]
+
 def _process_run(
     run: dict[str, Any], 
     run_id: int | None, 
-    logger: logging.Logger
+    logger: logging.Logger,
+    pruning_callback=None
 )-> dict[str, tuple[float, float, float, float]]:
     """
     This function executes the run according to their description.
@@ -148,11 +200,13 @@ def _process_run(
     :type run_id: int | None
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param pruning_callback: Optional parameter; used in training for 
+        hyperband pruning. (DEFAULT=None)
     :returns: In order, the training and validation MAEs, then the MSEs.
     :rtype: dict[str, tuple[float, float, float, float]]
     """
     ############ Change output dir to specific run folder. #############
-    if run_id is not None:
+    if run_id is not None and pruning_callback is None:
         handle_output.OUTPUT_DIR = \
             f"{handle_output.OUTPUT_DIR}run_{run_id}/" if \
                 run_id == 0 else "/".join(
@@ -249,7 +303,8 @@ def _process_run(
                 train_dataloader, 
                 val_dataloader, 
                 test_dataloader,
-                logger
+                logger,
+                pruning_callback
             )
             all_model_results[model] = model_results
         # Remove model specific sub-directory before starting next run.
@@ -265,7 +320,8 @@ def _process_run(
             train_dataloader, 
             val_dataloader, 
             test_dataloader, 
-            logger
+            logger,
+            pruning_callback
         )}
 
 def _process_model(
@@ -275,7 +331,8 @@ def _process_model(
     train_dataloader: DataLoader[Any], 
     val_dataloader: DataLoader[Any],
     test_dataloader: DataLoader[Any],
-    logger: logging.Logger
+    logger: logging.Logger,
+    pruning_callback=None
 )-> tuple[float, float]:
     """
     Applies dataset to specific model. 
@@ -298,6 +355,8 @@ def _process_model(
     :type test_dataloader: DataLoader[Any]
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param pruning_callback: Optional parameter; used in training for 
+        hyperband pruning. (DEFAULT=None)
     :returns: In order, the training and validation accuracies.
     :rtype: tuple[float, float]
     """
@@ -372,7 +431,8 @@ def _process_model(
         "optimiser": OPTIMISER,
         "n_epochs" : run["n_epochs"],
         "device" : DEVICE,
-        "logger" : logger
+        "logger" : logger,
+        "pruning_callback": pruning_callback
     }
 
     ################ Don't use k-fold cross validation #################

@@ -238,5 +238,6 @@ output/*
 output/*/
 *.yml
 !*/data/.gitkeep
+*.csv
 
 .vscode/
