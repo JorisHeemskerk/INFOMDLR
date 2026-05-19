@@ -1,59 +1,43 @@
-"""
-Optuna-based hyperparameter tuning with Bayesian optimisation (TPE)
-and Hyperband pruning.
-
-Usage: called from main.py when a job has `tune: true` set.
-"""
-
 import copy
 import logging
-import os
-from typing import Any, Callable
-
-import numpy as np
 import optuna
+import os
+import yaml
+
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
+from typing import Any, Callable
 
 import handle_output
-from train import METRICS
 
-
-# ---------------------------------------------------------------------------
-# Search-space helpers
-# ---------------------------------------------------------------------------
 
 def _build_search_space(
     trial: optuna.Trial,
     job: dict[str, Any],
-) -> dict[str, Any]:
+)-> dict[str, Any]:
     """
-    Derive an Optuna search space from the job config.
-
-    Convention
-    ----------
-    * A parameter with **one** value  →  fixed (not tuned).
-    * A parameter with **two** values →  treated as [low, high] and sampled
-      over that range using a log-scale for lr / weight_decay and a linear
-      int-scale for the rest.
-    * A parameter with **three or more** values →  treated as an explicit
-      categorical list.
+    Derive an Optuna search space from the job config. Parameters with a
+    single value are fixed and not tuned. Parameters with two values are
+    treated as [low, high] and sampled over that range, using a log 
+    scale for learning_rate and weight_decay and a linear int scale for 
+    the rest. Parameters with three or more values are treated as a 
+    categorical list.
 
     :param trial: Current Optuna trial.
+    :type trial: optuna.Trial
     :param job: Job description from config.
+    :type job: dict[str, Any]
     :returns: Flat dict of concrete hyperparameter values for this trial.
+    :rtype: dict[str, Any]
     """
     TUNABLE = {
-        "learning_rate": ("float", True),   # (type, log_scale)
-        "weight_decay":  ("float", True),
-        "hidden_size":   ("int",   False),
-        "num_layers":    ("int",   False),
-        "batch_size":    ("int",   False),
-        "window_size":   ("int",   False),
-        "stride":        ("int",   False),
+        "learning_rate": ("float", True), # (type, log_scale)
+        "weight_decay": ("float", True),
+        "hidden_size": ("int", False),
+        "num_layers": ("int", False),
+        "batch_size": ("int",False),
+        "window_size": ("int", False),
+        "stride": ("int", False),
     }
 
     params: dict[str, Any] = {}
@@ -71,92 +55,107 @@ def _build_search_space(
             if dtype == "float":
                 params[key] = trial.suggest_float(key, low, high, log=log)
             else:
-                params[key] = trial.suggest_int(key, int(low), int(high),
-                                                log=log)
+                params[key] = trial.suggest_int(
+                    key,
+                    int(low),
+                    int(high),
+                    log=log
+                )
         else:
             # Categorical list.
             params[key] = trial.suggest_categorical(key, values)
     
     return params
 
-
-# ---------------------------------------------------------------------------
-# Pruning callback for train.py
-# ---------------------------------------------------------------------------
-
 class OptunaPruningCallback:
     """
-    Passed into the training loop so Hyperband can prune bad trials.
-
-    After each epoch the callback reports the current validation accuracy
-    to Optuna and raises ``TrialPruned`` when the trial should be stopped.
-
-    :param trial: Current Optuna trial.
-    :param monitor: Key in the val_metrics dict to track (default: 
-        "accuracy").
+    A callback class for hyperband pruning.
     """
 
-    def __init__(self, trial: optuna.Trial, monitor: str = "accuracy") -> None:
+    def __init__(self, trial: optuna.Trial, monitor: str = "loss")-> None:
+        """
+        Initialize the pruning callback.
+
+        :param trial: Current optuna trial.
+        :type trial: optuna.Trial
+        :param monitor: Which metric the callback class is based on.
+        :type monitor: str
+        """
         self.trial = trial
         self.monitor = monitor
         self._epoch = 0
 
-    def __call__(self, val_metrics: dict[str, float]) -> None:
-        value = val_metrics[self.monitor]
-        self.trial.report(value, step=self._epoch)
+    def __call__(self, val_loss: float)-> None:
+        """
+        Report the validation loss to Optuna and prune the trial if
+        needed.
+
+        :param val_loss: Validation loss of the current epoch.
+        :type val_loss: float.
+        """
+        self.trial.report(val_loss, step=self._epoch)
         self._epoch += 1
         if self.trial.should_prune():
             raise optuna.TrialPruned(
                 f"Trial pruned at epoch {self._epoch - 1} "
-                f"(val_{self.monitor}={value:.4f})."
+                f"(val_{self.monitor}={val_loss:.4f})."
             )
-
-
-# ---------------------------------------------------------------------------
-# Core tuning function
-# ---------------------------------------------------------------------------
 
 def tune_job(
     job: dict[str, Any],
     job_id: int,
-    build_run_fn: Callable[[dict[str, Any], int, logging.Logger,
-                            optuna.Trial | None], float],
+    build_run_fn: Callable[
+        [
+            dict[str, Any],
+            int,
+            logging.Logger,
+            optuna.Trial | None
+        ], 
+        float
+    ],
     logger: logging.Logger,
-    n_trials: int = 30,
-    n_startup_trials: int = 10,
-    direction: str = "maximize",
+    n_trials: int,
+    n_startup_trials: int,
+    direction: str,
     study_name: str | None = None,
     storage: str | None = None,
-) -> optuna.Study:
+)-> optuna.Study:
     """
     Run an Optuna study for one job.
 
-    :param job: Job description from config.
-    :param job_id: Used for directory naming / logging.
-    :param build_run_fn: Callable with signature
-        ``(run_dict, trial_number, logger, trial) -> float``.
-        It must return the scalar metric Optuna should optimise (e.g. best
-        validation accuracy).  Pass the Optuna trial object through so the
-        function can attach the pruning callback.
-    :param logger: Logger.
-    :param n_trials: Total number of trials (default 30).
-    :param n_startup_trials: Random warm-up trials before TPE kicks in
-        (default 10).
-    :param direction: "maximize" or "minimize" (default "maximize").
+    :param job: Job description, pulled from config.
+    :type job: ditct[str, Any]
+    :param job_id: ID of the current job (for logging and directory 
+        naming).
+    :type job_id: int
+    :param build_run_fn: Callable function that runs a trial and returns
+        the metric optuna is optimising.
+    :type build_run_fn: Callable
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    :param n_trials: Total number of trials.
+    :type n_trials: int
+    :param n_startup_trials: Warm up trials before optimisation starts.
+    :type n_startup_trials: int
+    :param direction: The direction the optimisation tries to move the
+        metric toward ("maximize" or "minimize").
+    :type direction: str
     :param study_name: Optional name for the Optuna study.
+    :type study_name: str
     :param storage: Optional Optuna storage URL for persistence
         (e.g. "sqlite:///study.db").
+    :type storage: str
     :returns: Completed Optuna study.
+    :rtype: optuna.Study
     """
     study_name = study_name or f"job_{job_id}_tuning"
 
     sampler = TPESampler(
         n_startup_trials=n_startup_trials,
         seed=42,
-        multivariate=True,   # joint modelling of hyperparameters
+        multivariate=True,
     )
-    # min_resource  = earliest epoch Hyperband can prune
-    # max_resource  = n_epochs (reduction factor η=3 by default)
+    
     pruner = HyperbandPruner(
         min_resource=1,
         max_resource=job["n_epochs"],
@@ -172,52 +171,49 @@ def tune_job(
         load_if_exists=True,
     )
 
-    tuning_output_dir = handle_output.OUTPUT_DIR  # snapshot before trials move it
+    tuning_output_dir = handle_output.OUTPUT_DIR
 
     def objective(trial: optuna.Trial) -> float:
-        # Reset output dir to the job-level directory for each trial.
-        handle_output.OUTPUT_DIR = \
-            f"{tuning_output_dir}trial_{trial.number}/"
+        """
+        Run a single trial.
+
+        :param trial: Current trial.
+        :type trial: optuna.Trial
+        :return: Score of the trial to be optimised.
+        :rtype: float
+        """
+        handle_output.OUTPUT_DIR = f"{tuning_output_dir}trial_{trial.number}/"
         os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
 
-        # Build concrete hyperparameters for this trial.
         sampled = _build_search_space(trial, job)
 
-        # Merge with fixed job keys (dataset, model, etc.).
         run = copy.deepcopy(job)
         run.update(sampled)
-        logger.info(f"{run = }")
-        logger.info(f"{sampled = }")
 
-        logger.info(
-            f"[Optuna] Trial {trial.number} | params: {sampled}"
-        )
+        logger.info(f"Trial {trial.number} | params: {sampled}")
 
         try:
             score = build_run_fn(run, trial.number, logger, trial)
         except optuna.TrialPruned:
-            raise  # let Optuna handle it
+            raise
         except Exception as e:
             logger.error(
-                f"[Optuna] Trial {trial.number} failed with {type(e).__name__}: "
-                f"{e}"
+                f"Trial {trial.number} failed with {type(e).__name__}: {e}"
             )
             raise optuna.exceptions.TrialPruned() from e
 
         logger.info(
-            f"[Optuna] Trial {trial.number} finished | "
-            f"{direction} metric = {score}"
+            f"Trial {trial.number} finished | {direction} metric = {score}"
         )
         return score
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
-    # Restore output dir to job level after all trials.
     handle_output.OUTPUT_DIR = tuning_output_dir
 
     logger.info(
-        f"[Optuna] Best trial: #{study.best_trial.number} | "
+        f"Best trial: #{study.best_trial.number} | "
         f"value={study.best_trial.value:.4f} | "
         f"params={study.best_trial.params}"
     )
@@ -225,28 +221,26 @@ def tune_job(
     _save_study_summary(study, tuning_output_dir, logger)
     return study
 
-
-# ---------------------------------------------------------------------------
-# Persistence helper
-# ---------------------------------------------------------------------------
-
 def _save_study_summary(
     study: optuna.Study,
     output_dir: str,
     logger: logging.Logger,
-) -> None:
+)-> None:
     """
-    Write a human-readable CSV and a best-params YAML to *output_dir*.
-    """
-    import yaml
+    Write a trial overview CSV and a best-params YAML to *output_dir*.
 
-    # Full trials dataframe.
+    :param study: The hyperparameter optimization study.
+    :type study: optuna.Study
+    :param output_dir: Output directory to save files to.
+    :type output_dir: str
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    """
     df = study.trials_dataframe()
     csv_path = os.path.join(output_dir, "optuna_trials.csv")
     df.to_csv(csv_path, index=False)
-    logger.info(f"[Optuna] Trials saved to {csv_path}")
+    logger.info(f"Hyperparameter optimisation trials saved to {csv_path}")
 
-    # Best params.
     best_path = os.path.join(output_dir, "best_params.yml")
     with open(best_path, "w") as f:
         yaml.dump(
@@ -257,4 +251,4 @@ def _save_study_summary(
             },
             f,
         )
-    logger.info(f"[Optuna] Best params saved to {best_path}")
+    logger.info(f"Best params saved to {best_path}")

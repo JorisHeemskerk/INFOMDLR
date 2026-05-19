@@ -8,3 +8,4 @@ PyYAML==6.0.3
 jsonschema==4.26.0
 h5py==3.16.0
 optuna==4.8.0
+pandas==3.0.3

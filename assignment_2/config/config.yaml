@@ -9,7 +9,7 @@
 # parameter restrictions.
 
 general:
-    num_data_workers: 1 # Number of workers preparing batches.
+    num_data_workers: 4 # Number of workers preparing batches.
 jobs:
     # job0:
     #     model: "baseline" # Can be from: [baseline, all]
@@ -32,8 +32,8 @@ jobs:
         n_trials: 3
         n_startup_trials: 1
         model: "baseline" # Can be from: [baseline, all]
-        dataset: cross # Can be from [intra, cross]
-        window_size: [10, 20]
+        dataset: intra # Can be from [intra, cross]
+        window_size: [10]
         stride: [10, 20]
         downsample_factor: 4
         lazy: true
@@ -42,7 +42,7 @@ jobs:
         optimiser: "adam"
         weight_decay: [0.0001, 0.001]
         train_val_split: [.8, .2]
-        batch_size: [8, 16]
+        batch_size: [8]
         n_epochs: 1
         k_folds: 1
         learning_rate: [0.0001, 0.001]

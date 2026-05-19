@@ -56,12 +56,16 @@ def _process_job(
     """
     This function executes the jobs according to their description.
 
+    If the job contains a `tune: true`, a Bayesian optimisation with
+    hyperband pruning study is run instead of the following sequential
+    search.
+
     For each tunable parameter in job description, spin up several jobs,
     each with different values for that parameter. For all others, the
     first item in the list will be used as to prevent highly 
     computationally expensive grid searches. 
 
-    :param job: Job description, pulled from config
+    :param job: Job description, pulled from config.
     :type job: dict[str, Any]
     :param job_id: ID of the current job (for logging).
     :type job_id: int
@@ -78,20 +82,21 @@ def _process_job(
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     job_output_dir = handle_output.OUTPUT_DIR
 
-    # Hyperparameter tuning via bayesian optimization and hyperband pruning.
+    # Hyperparameter tuning via bayesian optimization and hyperband
+    # pruning.
     if job.get("tune", False):
         logger.info(
-            f"[Job {job_id}] tune=true detected → running Optuna "
-            "Bayesian optimisation with Hyperband pruning."
+            f"Running job {job_id}] with bayesian optimisation and hyperband"
+            "pruning."
         )
         tune_job(
             job=job,
             job_id=job_id,
             build_run_fn=_run_for_optuna,
             logger=logger,
-            n_trials=job.get("n_trials", 30),
-            n_startup_trials=job.get("n_startup_trials", 10),
-            direction="maximize",               # maximise val accuracy
+            n_trials=job["n_trials"],
+            n_startup_trials=job["n_startup_trials"],
+            direction="minimize",
         )
         return
 
@@ -134,7 +139,7 @@ def _process_job(
                         run_id=i, 
                         logger=logger
                     )
-                    tune_results.append(results)
+                    tune_results.append({k: v[:2] for k, v in results.items()})
                 visualise_tuning(
                     tune_param_name=key,
                     tune_param_values=values,
@@ -160,35 +165,34 @@ def _run_for_optuna(
     trial: optuna.Trial,
 ) -> float:
     """
-    Thin adapter called by ``tune_job`` for each Optuna trial.
+    Thin adapter called by `tune_job` for each Optuna trial.
  
-    Bridges between Optuna's interface and ``_process_run`` by:
-    * injecting a pruning callback, and
-    * returning only the scalar val-accuracy Optuna needs.
+    Bridges between Optuna's interface and `_process_run` by injecting a
+    pruning callback, and only returning the loss Optuna needs.
  
-    :param run: Fully-resolved run config for this trial (all params are
-        concrete scalars, not lists).
+    :param run: Run config for this trial.
+    :type run: dict[str, Any]
     :param trial_number: Used as run_id for directory naming.
-    :param logger: Logger.
+    :type trial_number: int
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
     :param trial: Live Optuna trial (used for pruning).
-    :returns: Best validation accuracy achieved during the run.
+    :type trial: optuna.Trial
+    :returns: Best validation loss achieved during the run.
+    :rtype: float
     """
-    pruning_callback = OptunaPruningCallback(trial, monitor="accuracy")
-    results = _process_run(
+    return _process_run(
         run=run,
         run_id=trial_number,
         logger=logger,
-        pruning_callback=pruning_callback
-    )
-    # logger.warning(f"{run = }")
-    # logger.warning(f"{results = }")
-    return results[run['model']][1]
+        pruning_callback=OptunaPruningCallback(trial, monitor="loss")
+    )[run['model']][2]
 
 def _process_run(
     run: dict[str, Any], 
     run_id: int | None, 
     logger: logging.Logger,
-    pruning_callback=None
+    pruning_callback: OptunaPruningCallback=None
 )-> dict[str, tuple[float, float, float, float]]:
     """
     This function executes the run according to their description.
@@ -332,7 +336,7 @@ def _process_model(
     val_dataloader: DataLoader[Any],
     test_dataloader: DataLoader[Any],
     logger: logging.Logger,
-    pruning_callback=None
+    pruning_callback: OptunaPruningCallback=None
 )-> tuple[float, float]:
     """
     Applies dataset to specific model. 
@@ -519,7 +523,10 @@ def _process_model(
     # )
     # logger.critical(f"Test accuracy: {test_accuracy}")
 
-    return max(train_metrics["accuracy"]), max(val_metrics["accuracy"])
+    return \
+        max(train_metrics["accuracy"]), \
+        max(val_metrics["accuracy"]), \
+        min(val_losses)
 
 def main()-> None:
     ####################################################################
