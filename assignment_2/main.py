@@ -243,11 +243,11 @@ def _process_run(
         lazy=run["lazy"],
     )
     logger.debug(f"Test dataset size: {len(test_data)}")
-    logger.debug("Note that this set is not normalised.")
 
     ####################################################################
     #                      Create the DataLoaders.                     #
     ####################################################################
+    # TODO: skip this part when kfolds > 1, but normalise on all data instead!!!!!!!!!!
     logger.debug(f"Splitting the dataset into {run["train_val_split"]}.")
     indices = list(range(len(dataset)))
     
@@ -303,7 +303,7 @@ def _process_run(
             model_results = _process_model(
                 model_specific_run, 
                 model_id, 
-                test_data,
+                dataset,
                 train_dataloader, 
                 val_dataloader, 
                 test_dataloader,
@@ -320,7 +320,7 @@ def _process_run(
         return {run["model"]: _process_model(
             run, 
             None, 
-            test_data,
+            dataset,
             train_dataloader, 
             val_dataloader, 
             test_dataloader, 
@@ -404,6 +404,9 @@ def _process_model(
 
     model = model.to(DEVICE)
 
+    # Should speed up model after epoch 1, but has not proven effective.
+    # model = torch.compile(model, backend="aot_eager") 
+
     ####################################################################
     #                       Initialize optimiser.                      #
     ####################################################################
@@ -457,9 +460,12 @@ def _process_model(
                 k_folds=run["k_folds"],
                 dataset_to_dataloader_function=lambda dataset: to_dataloaders(
                     datasets=[dataset],
-                    batch_sizes=run["batch_size"],
-                    shuffles=[False],
-                    logger=logger
+                    batch_sizes=[run["batch_size"]],
+                    shuffles=[True],
+                    logger=logger,
+                    num_workers=CONFIG["general"]["num_data_workers"],
+                    pin_memory=True,
+                    persistent_workers=True,
                 ),
                 **arguments
             )
@@ -605,7 +611,6 @@ if __name__ == "__main__":
     # Seed PyTorch.
     torch.manual_seed(42)
 
-    torch.set_num_threads(1)
     # Initialise Device.
     if args.device is None:
         DEVICE = torch.accelerator.current_accelerator().type if \

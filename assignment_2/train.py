@@ -88,9 +88,12 @@ def train_cross_validation(
     initial_model_state = copy.deepcopy(model.state_dict())
     initial_optimiser_state = copy.deepcopy(optimiser.state_dict())
 
+    s, e = "-----=====", "=====-----"
     fold_size = len(full_train_dataset) // k_folds
     for k in range(k_folds):
-        logger.info(f"-----===== Fold {k+1}/{k_folds} =====-----")
+        logger.info(f"{s}{'#' * (len(str(k+1)) + len(str(k_folds)) + 10)}{e}")
+        logger.info(f"{s}# Fold {k+1}/{k_folds} #{e}")
+        logger.info(f"{s}{'#' * (len(str(k+1)) + len(str(k_folds)) + 10)}{e}")
 
         model.load_state_dict(copy.deepcopy(initial_model_state))
         optimiser.load_state_dict(copy.deepcopy(initial_optimiser_state))
@@ -278,6 +281,9 @@ def train_epoch(
     """
     total_loss = 0
     train_metrics = {metric: [] for metric in METRICS}
+    log_points = set(
+        np.linspace(0, len(dataloader) - 1, 10, dtype=int)
+    )
 
     model.train()
     for batch, (X, y) in enumerate(dataloader):
@@ -295,16 +301,16 @@ def train_epoch(
         for metric, method in METRICS.items():
             train_metrics[metric].append(method(y_hat, y).item())
 
-        if batch % 100 == 0:
+        if batch in log_points:
             current = batch * len(y) + len(X)
             metrics_string = ", ".join(
                 f"{metric}: {np.mean(train_metrics[metric]):>2f}"
                 for metric in METRICS.keys()
             )
             logger.debug(
-                f"\033[30mtrain loss: {loss.item():>7f} | "
+                f"train loss: {loss.item():>7f} | "
                 f"{metrics_string} | "
-                f"[{current:>5d}/{len(dataloader.dataset):>5d}]\033[37m"
+                f"[{current:>5d}/{len(dataloader.dataset):>5d}]"
             )
 
     return \
@@ -355,7 +361,7 @@ def val_epoch(
         f"{metric}: {np.mean(val_metrics[metric]):>2f}"
         for metric in METRICS.keys()
     )
-    logger.debug(f"Avg loss: {val_loss:>8f} | {metrics_string} |\n\033[37m")
+    logger.debug(f"Avg loss: {val_loss:>8f} | {metrics_string} |\n")
 
     return \
         val_loss, \
