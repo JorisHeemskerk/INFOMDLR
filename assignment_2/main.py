@@ -7,6 +7,7 @@ work for the Computer Vision course, and is being re-used here.
 import argparse
 import copy
 import logging
+import numpy as np
 import os
 import shutil
 import torch
@@ -14,7 +15,6 @@ import traceback
 import yaml
 
 from jsonschema import validate, ValidationError
-import numpy as np
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader
@@ -22,10 +22,11 @@ from typing import Any
 
 import handle_output
 
+from baseline import Baseline
 from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
-from baseline import Baseline
+from eeg_net import EEGNet
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
 from visualise import visualise_training, visualise_tuning
@@ -237,7 +238,7 @@ def _process_run(
 
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
-        MODELS = ["lstm", "rnn", "transformer"]
+        MODELS = ["eegnet"]
         all_model_results = {model: None for model in MODELS}
         for model_id, model in enumerate(MODELS):
             model_specific_run = copy.deepcopy(run)
@@ -322,6 +323,14 @@ def _process_model(
                     *([run["hidden_size"]] * run["num_layers"]),
                     len(LABEL_MAP),
                 ],
+                "logger": logger,
+            }
+        ),
+        "eegnet": (
+            EEGNet, {
+                "chunk_size": run["window_size"],
+                "num_electrodes": dataset.get_n_sensors(),
+                "num_classes": len(LABEL_MAP),
                 "logger": logger,
             }
         )

@@ -12,7 +12,7 @@ general:
     num_data_workers: 4 # Number of workers preparing batches.
 jobs:
     job0:
-        model: "baseline" # Can be from: [baseline, all]
+        model: "eegnet" # Can be from: [baseline, eegnet, all]
         dataset: intra # Can be from [intra, cross]
         window_size: [200]
         stride: [200]
@@ -25,5 +25,5 @@ jobs:
         train_val_split: [.8, .2]
         batch_size: [128]
         n_epochs: 10
-        k_folds: 5
+        k_folds: 1
         learning_rate: [0.0001]
