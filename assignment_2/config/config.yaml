@@ -11,22 +11,16 @@
 general:
     num_data_workers: 4 # Number of workers preparing batches.
 jobs:
-    # job0:
-    #     model: "baseline" # Can be from: [baseline, all]
-    #     dataset: cross # Can be from [intra, cross]
-    #     window_size: [200]
-    #     stride: [200]
-    #     downsample_factor: 4
-    #     lazy: true
-    #     hidden_size: [64]
-    #     num_layers: [1]
-    #     optimiser: "adam"
-    #     weight_decay: [0.0001]
-    #     train_val_split: [.8, .2]
-    #     batch_size: [8]
-    #     n_epochs: 1
-    #     k_folds: 1
-    #     learning_rate: [0.0001]
+    job0:
+        model: "eegnet" # Can be from: [baseline, eegnet, all]
+        dataset: intra # Can be from [intra, cross]
+        window_size: [200]
+        stride: [200]
+        train_val_split: [.8, .2]
+        batch_size: [128]
+        n_epochs: 10
+        k_folds: 1
+        learning_rate: [0.0001]
     job1:
         tune: true
         n_trials: 3
@@ -44,5 +38,5 @@ jobs:
         train_val_split: [.8, .2]
         batch_size: [128]
         n_epochs: 10
-        k_folds: 5
+        k_folds: 1
         learning_rate: [0.0001]
