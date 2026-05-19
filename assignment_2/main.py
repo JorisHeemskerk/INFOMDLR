@@ -13,6 +13,7 @@ import shutil
 import torch
 import traceback
 import yaml
+import optuna
 
 from jsonschema import validate, ValidationError
 from sklearn.model_selection import train_test_split
@@ -29,6 +30,7 @@ from data import to_dataloaders
 from eeg_net import EEGNet
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
+from tune import tune_job, OptunaPruningCallback
 from visualise import visualise_training, visualise_tuning
 
 DATASET_MAPPING = {
@@ -55,12 +57,16 @@ def _process_job(
     """
     This function executes the jobs according to their description.
 
+    If the job contains a `tune: true`, a Bayesian optimisation with
+    hyperband pruning study is run instead of the following sequential
+    search.
+
     For each tunable parameter in job description, spin up several jobs,
     each with different values for that parameter. For all others, the
     first item in the list will be used as to prevent highly 
     computationally expensive grid searches. 
 
-    :param job: Job description, pulled from config
+    :param job: Job description, pulled from config.
     :type job: dict[str, Any]
     :param job_id: ID of the current job (for logging).
     :type job_id: int
@@ -77,6 +83,25 @@ def _process_job(
     os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     job_output_dir = handle_output.OUTPUT_DIR
 
+    # Hyperparameter tuning via bayesian optimization and hyperband
+    # pruning.
+    if job.get("tune", False):
+        logger.info(
+            f"Running job {job_id}] with bayesian optimisation and hyperband"
+            "pruning."
+        )
+        tune_job(
+            job=job,
+            job_id=job_id,
+            build_run_fn=_run_for_optuna,
+            logger=logger,
+            n_trials=job["n_trials"],
+            n_startup_trials=job["n_startup_trials"],
+            direction="minimize",
+        )
+        return
+
+    # Hyperparameter tuning via sequential search.
     tunable_job_keys = [
         'window_size',
         'hidden_size',
@@ -115,7 +140,7 @@ def _process_job(
                         run_id=i, 
                         logger=logger
                     )
-                    tune_results.append(results)
+                    tune_results.append({k: v[:2] for k, v in results.items()})
                 visualise_tuning(
                     tune_param_name=key,
                     tune_param_values=values,
@@ -134,10 +159,41 @@ def _process_job(
             logger=logger
         )
 
+def _run_for_optuna(
+    run: dict[str, Any],
+    trial_number: int,
+    logger: logging.Logger,
+    trial: optuna.Trial,
+) -> float:
+    """
+    Thin adapter called by `tune_job` for each Optuna trial.
+ 
+    Bridges between Optuna's interface and `_process_run` by injecting a
+    pruning callback, and only returning the loss Optuna needs.
+ 
+    :param run: Run config for this trial.
+    :type run: dict[str, Any]
+    :param trial_number: Used as run_id for directory naming.
+    :type trial_number: int
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    :param trial: Live Optuna trial (used for pruning).
+    :type trial: optuna.Trial
+    :returns: Best validation loss achieved during the run.
+    :rtype: float
+    """
+    return _process_run(
+        run=run,
+        run_id=trial_number,
+        logger=logger,
+        pruning_callback=OptunaPruningCallback(trial, monitor="loss")
+    )[run['model']][2]
+
 def _process_run(
     run: dict[str, Any], 
     run_id: int | None, 
-    logger: logging.Logger
+    logger: logging.Logger,
+    pruning_callback: OptunaPruningCallback=None
 )-> dict[str, tuple[float, float, float, float]]:
     """
     This function executes the run according to their description.
@@ -149,11 +205,13 @@ def _process_run(
     :type run_id: int | None
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param pruning_callback: Optional parameter; used in training for 
+        hyperband pruning. (DEFAULT=None)
     :returns: In order, the training and validation MAEs, then the MSEs.
     :rtype: dict[str, tuple[float, float, float, float]]
     """
     ############ Change output dir to specific run folder. #############
-    if run_id is not None:
+    if run_id is not None and pruning_callback is None:
         handle_output.OUTPUT_DIR = \
             f"{handle_output.OUTPUT_DIR}run_{run_id}/" if \
                 run_id == 0 else "/".join(
@@ -250,7 +308,8 @@ def _process_run(
                 train_dataloader, 
                 val_dataloader, 
                 test_dataloader,
-                logger
+                logger,
+                pruning_callback
             )
             all_model_results[model] = model_results
         # Remove model specific sub-directory before starting next run.
@@ -266,7 +325,8 @@ def _process_run(
             train_dataloader, 
             val_dataloader, 
             test_dataloader, 
-            logger
+            logger,
+            pruning_callback
         )}
 
 def _process_model(
@@ -276,7 +336,8 @@ def _process_model(
     train_dataloader: DataLoader[Any], 
     val_dataloader: DataLoader[Any],
     test_dataloader: DataLoader[Any],
-    logger: logging.Logger
+    logger: logging.Logger,
+    pruning_callback: OptunaPruningCallback=None
 )-> tuple[float, float]:
     """
     Applies dataset to specific model. 
@@ -299,6 +360,8 @@ def _process_model(
     :type test_dataloader: DataLoader[Any]
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param pruning_callback: Optional parameter; used in training for 
+        hyperband pruning. (DEFAULT=None)
     :returns: In order, the training and validation accuracies.
     :rtype: tuple[float, float]
     """
@@ -384,7 +447,8 @@ def _process_model(
         "optimiser": OPTIMISER,
         "n_epochs" : run["n_epochs"],
         "device" : DEVICE,
-        "logger" : logger
+        "logger" : logger,
+        "pruning_callback": pruning_callback
     }
 
     ################ Don't use k-fold cross validation #################
@@ -474,7 +538,10 @@ def _process_model(
     # )
     # logger.critical(f"Test accuracy: {test_accuracy}")
 
-    return max(train_metrics["accuracy"]), max(val_metrics["accuracy"])
+    return \
+        max(train_metrics["accuracy"]), \
+        max(val_metrics["accuracy"]), \
+        min(val_losses)
 
 def main()-> None:
     ####################################################################

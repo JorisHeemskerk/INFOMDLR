@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from tqdm import tqdm
 from typing import Callable
 
+from tune import OptunaPruningCallback
+
 
 METRICS = {
     "accuracy": lambda y_hat, y: (y_hat.argmax(dim=-1) == y).float().mean(),
@@ -29,7 +31,8 @@ def train_cross_validation(
     n_epochs: int,
     device: str,
     logger: logging.Logger,
-) -> tuple[
+    pruning_callback: OptunaPruningCallback=None,
+)-> tuple[
     np.ndarray,
     dict[str, np.ndarray],
     np.ndarray,
@@ -58,6 +61,9 @@ def train_cross_validation(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param pruning_callback: Optional parameter; used in training for 
+        hyperband pruning. (DEFAULT=None)
+    :type pruning_callback: OptunaPruningCallback
     :return: Per-fold, per-epoch train losses and metrics and validation
         losses and metrics as numpy arrays, along with the model 
         checkpoint that achieved the best validation loss across all 
@@ -114,6 +120,7 @@ def train_cross_validation(
             n_epochs=n_epochs,
             device=device,
             logger=logger,
+            pruning_callback=pruning_callback,
         )
 
         # Track the model from the fold with the lowest mean val loss.
@@ -154,7 +161,8 @@ def train(
     optimiser: torch.optim.Optimizer,
     n_epochs: int,
     device: str,
-    logger: logging.Logger
+    logger: logging.Logger,
+    pruning_callback: OptunaPruningCallback=None
 )-> tuple[
     list[float],
     dict[str, list[float]],
@@ -181,6 +189,9 @@ def train(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
+    :param pruning_callback: Optional parameter; used in training for 
+        hyperband pruning. (DEFAULT=None)
+    :type pruning_callback: OptunaPruningCallback
     :return: Per epoch train losses and metrics and validation losses 
         and metrics. Along with the model checkpoint that achieved the 
         best validation loss.
@@ -224,6 +235,9 @@ def train(
             best = copy.deepcopy(model.state_dict())
         val_losses_per_epoch.append(val_loss)
         val_metrics_per_epoch.append(val_metrics)
+
+        if pruning_callback is not None:
+            pruning_callback(val_loss)
 
     logger.info("Done training")
     model.load_state_dict(best)

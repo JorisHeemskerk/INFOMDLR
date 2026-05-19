@@ -53,6 +53,15 @@ CONFIG_TEMPLATE = {
                 '^job\\d+$': {
                     'type': 'object',
                     'properties': {
+                        'tune': {
+                            'type': 'boolean', 
+                        },
+                        'n_trials': {
+                            'type': 'number', 
+                        },
+                        'n_startup_trials': {
+                            'type': 'number', 
+                        },
                         'model': {
                             'type': 'string', 
                         },
