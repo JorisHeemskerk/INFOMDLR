@@ -30,7 +30,7 @@ from data import to_dataloaders
 from eeg_net import EEGNet
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
-from tune import tune_job, OptunaPruningCallback
+from tune import tune_job, OptunaPruningCallback, TUNABLE_PARAMS
 from visualise import visualise_training, visualise_tuning
 
 DATASET_MAPPING = {
@@ -101,26 +101,15 @@ def _process_job(
         )
         return
 
-    # Hyperparameter tuning via sequential search.
-    tunable_job_keys = [
-        'window_size',
-        'hidden_size',
-        'num_layers',
-        'learning_rate',
-        'batch_size',
-        'stride',
-        'weight_decay',
-    ]
-
     tune_changes = False
     for key, values in job.items():
-        if key in tunable_job_keys:
+        if key in list(TUNABLE_PARAMS.keys()):
             if len(values) > 1:
                 tune_changes = True
                 tune_results = []
                 for i, value in enumerate(values):
                     run_description = copy.deepcopy(job)
-                    for tune_key in tunable_job_keys:
+                    for tune_key in list(TUNABLE_PARAMS.keys()):
                         if len(job[tune_key]) > 1 and tune_key != key:
                             logger.warning(
                                 "Multiple parameters provided for multiple tun"
@@ -151,7 +140,7 @@ def _process_job(
     # If there were no instances of multiple parameters, run as 1 job.
     if not tune_changes:
         run_description = copy.deepcopy(job)
-        for tune_key in tunable_job_keys:
+        for tune_key in list(TUNABLE_PARAMS.keys()):
             run_description[tune_key] = job[tune_key][0]
         _process_run(
             run=run_description,
@@ -383,7 +372,10 @@ def _process_model(
             Baseline, {
                 "network_shape": [
                     dataset.get_n_sensors() * run["window_size"], 
-                    *([run["hidden_size"]] * run["num_layers"]),
+                    *(
+                        [run["model_params"]["hidden_size"]] * 
+                        run["model_params"]["num_layers"]
+                    ),
                     len(LABEL_MAP),
                 ],
                 "logger": logger,

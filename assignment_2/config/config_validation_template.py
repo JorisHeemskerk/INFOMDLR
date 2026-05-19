@@ -16,18 +16,25 @@ modify this code, at the express notion that a disclaimer was put in.
         num_data_workers: _
     jobs:
         job0:
-            model: _
-            input_size: _
+            dataset: _
             window_size: _
             stride: _
             downsample_factor: _
-            num_layers: _
-            optimiser: _
-            weight_decay: _
+            lazy: _
             train_val_split: _
             batch_size: _
-            n_epochs: _
+
+            model: _
+            model_params: _
+            optimiser: _
             learning_rate: _
+            weight_decay: _
+            n_epochs: _
+            k_folds: _
+
+            tune: _
+            n_trials: _
+            n_startup_trials: _
     ```
 """
 
@@ -53,18 +60,6 @@ CONFIG_TEMPLATE = {
                 '^job\\d+$': {
                     'type': 'object',
                     'properties': {
-                        'tune': {
-                            'type': 'boolean', 
-                        },
-                        'n_trials': {
-                            'type': 'number', 
-                        },
-                        'n_startup_trials': {
-                            'type': 'number', 
-                        },
-                        'model': {
-                            'type': 'string', 
-                        },
                         'dataset': {
                             'type': 'string', 
                         },
@@ -85,24 +80,6 @@ CONFIG_TEMPLATE = {
                         'lazy': {
                             'type': 'boolean', 
                         },
-                        'hidden_size': {
-                            'type': 'array',
-                            'items': {'type': 'number'},
-                            'minItems': 1
-                        },
-                        'num_layers': {
-                            'type': 'array',
-                            'items': {'type': 'number'},
-                            'minItems': 1
-                        },
-                        'optimiser': {
-                            'type': 'string', 
-                        },
-                        'weight_decay': {
-                            'type': 'array',
-                            'items': {'type': 'number'},
-                            'minItems': 1
-                        },
                         'train_val_split': {
                             'type': 'array',
                             'items': {'type': 'number'},
@@ -110,6 +87,26 @@ CONFIG_TEMPLATE = {
                             'maxItems': 2
                         },
                         'batch_size': {
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
+                        },
+
+                        'model': {
+                            'type': 'string', 
+                        },
+                        'model_params': {
+                            'type': 'object', 
+                        },
+                        'optimiser': {
+                            'type': 'string', 
+                        },
+                        'learning_rate': {
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
+                        },
+                        'weight_decay': {
                             'type': 'array',
                             'items': {'type': 'number'},
                             'minItems': 1
@@ -122,27 +119,33 @@ CONFIG_TEMPLATE = {
                             'type': 'number', 
                             'minimum': 1
                         },
-                        'learning_rate': {
-                            'type': 'array',
-                            'items': {'type': 'number'},
-                            'minItems': 1
-                        }
+                        
+                        'tune': {
+                            'type': 'boolean', 
+                        },
+                        'n_trials': {
+                            'type': 'number', 
+                        },
+                        'n_startup_trials': {
+                            'type': 'number', 
+                        },
                     },
                     'required': [
-                        'model',
+                        'dataset',
                         'window_size',
                         'stride',
                         'downsample_factor',
                         'lazy',
-                        'hidden_size',
-                        'num_layers',
-                        'optimiser',
-                        'weight_decay',
                         'train_val_split',
                         'batch_size',
+
+                        'model',
+                        'model_params',
+                        'optimiser',
+                        'learning_rate',
+                        'weight_decay',
                         'n_epochs',
                         'k_folds',
-                        'learning_rate',
                     ],
                     'additionalProperties' : False
                 }

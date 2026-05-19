@@ -2,6 +2,7 @@ import copy
 import logging
 import optuna
 import os
+import time
 import yaml
 
 from optuna.samplers import TPESampler
@@ -10,6 +11,14 @@ from typing import Any, Callable
 
 import handle_output
 
+
+TUNABLE_PARAMS = {
+    "learning_rate": ("float", True), # (type, log_scale)
+    "weight_decay": ("float", True),
+    "batch_size": ("int",False),
+    "window_size": ("int", False),
+    "stride": ("int", False),
+}
 
 def _build_search_space(
     trial: optuna.Trial,
@@ -27,21 +36,11 @@ def _build_search_space(
     :type trial: optuna.Trial
     :param job: Job description from config.
     :type job: dict[str, Any]
-    :returns: Flat dict of concrete hyperparameter values for this trial.
+    :returns: Flat dict of concrete hyperparameter values for this trial
     :rtype: dict[str, Any]
     """
-    TUNABLE = {
-        "learning_rate": ("float", True), # (type, log_scale)
-        "weight_decay": ("float", True),
-        "hidden_size": ("int", False),
-        "num_layers": ("int", False),
-        "batch_size": ("int",False),
-        "window_size": ("int", False),
-        "stride": ("int", False),
-    }
-
     params: dict[str, Any] = {}
-    for key, (dtype, log) in TUNABLE.items():
+    for key, (dtype, log) in TUNABLE_PARAMS.items():
         values = job.get(key, [])
         n = len(values)
 
@@ -173,6 +172,21 @@ def tune_job(
 
     tuning_output_dir = handle_output.OUTPUT_DIR
 
+    def _log_progress_bar(trial_i, n_trials, start_time, logger):
+        trial_progress = int((trial_i + 1) / n_trials * 50)
+
+        elapsed = time.perf_counter() - start_time
+        s_per_trial = elapsed / (trial_i + 1)
+        estimate = s_per_trial * n_trials
+
+        trail_progress_message = \
+            f"\033[36mTrial {trial_i}  {trial_progress}%|" \
+            f"{'#' * trial_progress}{' ' * (50 - trial_progress)}| " \
+            f"{trial_i + 1}/{n_trials} [{int(elapsed // 60)}:" \
+            f"{int(elapsed % 60)}<{int(estimate // 60)}:" \
+            f"{int(estimate % 60)}, {s_per_trial:.2f}s/it]\033[37m"
+        logger.info(trail_progress_message)
+
     def objective(trial: optuna.Trial) -> float:
         """
         Run a single trial.
@@ -195,6 +209,7 @@ def tune_job(
         try:
             score = build_run_fn(run, trial.number, logger, trial)
         except optuna.TrialPruned:
+            _log_progress_bar(trial.number, n_trials, start_time, logger)
             raise
         except Exception as e:
             logger.error(
@@ -205,10 +220,13 @@ def tune_job(
         logger.info(
             f"Trial {trial.number} finished | {direction} metric = {score}"
         )
+        _log_progress_bar(trial.number, n_trials, start_time, logger)
+
         return score
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+    start_time = time.perf_counter()
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
     handle_output.OUTPUT_DIR = tuning_output_dir
 
