@@ -93,7 +93,12 @@ def _process_job(
         tune_job(
             job=job,
             job_id=job_id,
-            build_run_fn=_run_for_optuna,
+            build_run_fn=lambda run, trial_number, logger, trial: _process_run(
+                run=run,
+                run_id=trial_number,
+                logger=logger,
+                pruning_callback=OptunaPruningCallback(trial, monitor="loss")
+            )[run['model']][2],
             logger=logger,
             n_trials=job["n_trials"],
             n_startup_trials=job["n_startup_trials"],
@@ -148,41 +153,11 @@ def _process_job(
             logger=logger
         )
 
-def _run_for_optuna(
-    run: dict[str, Any],
-    trial_number: int,
-    logger: logging.Logger,
-    trial: optuna.Trial,
-) -> float:
-    """
-    Thin adapter called by `tune_job` for each Optuna trial.
- 
-    Bridges between Optuna's interface and `_process_run` by injecting a
-    pruning callback, and only returning the loss Optuna needs.
- 
-    :param run: Run config for this trial.
-    :type run: dict[str, Any]
-    :param trial_number: Used as run_id for directory naming.
-    :type trial_number: int
-    :param logger: Logger to log to.
-    :type logger: logging.Logger
-    :param trial: Live Optuna trial (used for pruning).
-    :type trial: optuna.Trial
-    :returns: Best validation loss achieved during the run.
-    :rtype: float
-    """
-    return _process_run(
-        run=run,
-        run_id=trial_number,
-        logger=logger,
-        pruning_callback=OptunaPruningCallback(trial, monitor="loss")
-    )[run['model']][2]
-
 def _process_run(
     run: dict[str, Any], 
     run_id: int | None, 
     logger: logging.Logger,
-    pruning_callback: OptunaPruningCallback=None
+    pruning_callback: OptunaPruningCallback | None=None
 )-> dict[str, tuple[float, float, float, float]]:
     """
     This function executes the run according to their description.
@@ -238,41 +213,46 @@ def _process_run(
     #                      Create the DataLoaders.                     #
     ####################################################################
     # TODO: skip this part when kfolds > 1, but normalise on all data instead!!!!!!!!!!
-    logger.debug(f"Splitting the dataset into {run["train_val_split"]}.")
     indices = list(range(len(dataset)))
+    train_idx = indices
+
+    if run["k_folds"] == 1:
+        logger.debug(f"Splitting the dataset into {run["train_val_split"]}.")
     
-    ######################### Split the data. ##########################
-    train_idx, val_idx = train_test_split(
-        indices, 
-        test_size=run["train_val_split"][1],
-        random_state=42
-    )
+        ####################### Split the data. ########################
+        train_idx, val_idx = train_test_split(
+            indices, 
+            test_size=run["train_val_split"][1],
+            random_state=42
+        )
     # Normalise based on only the train partition.
     logger.debug("Fitting normalisation.")
     dataset.fit_normalisation(train_idx)
     logger.debug(
-        f"Normalisation fitted on training set: "
+        "Normalisation fitted: "
         f"mean[:2]={dataset.mean[:2]}, std[:2]={dataset.std[:2]}"
     )
     test_data.mean = dataset.mean
     test_data.std = dataset.std
 
-    logger.debug("Creating subsets.")
-    train_dataset = torch.utils.data.Subset(dataset, train_idx)
-    val_dataset = torch.utils.data.Subset(dataset, val_idx)
-    logger.debug(f"{len(train_dataset) = }, {len(val_dataset) = }")
+    train_dataloader, val_dataloader = None, None
+    if run["k_folds"] == 1:
+        logger.debug("Creating subsets.")
+        train_dataset = torch.utils.data.Subset(dataset, train_idx)
+        val_dataset = torch.utils.data.Subset(dataset, val_idx)
+        logger.debug(f"{len(train_dataset) = }, {len(val_dataset) = }")
 
-    ########## Convert DataSet objects to DataLoader objects. ##########
-    logger.debug("converting to dataloaders")
-    train_dataloader, val_dataloader = to_dataloaders(
-        [train_dataset, val_dataset], 
-        batch_sizes=[run["batch_size"]] * 2, 
-        shuffles=[True, False],
-        logger=logger,
-        num_workers=CONFIG["general"]["num_data_workers"],
-        pin_memory=True, # TODO: check if this should be replaced with run["lazy"]
-        persistent_workers=True
-    )
+        ######## Convert DataSet objects to DataLoader objects. ########
+        logger.debug("converting to dataloaders")
+        train_dataloader, val_dataloader = to_dataloaders(
+            [train_dataset, val_dataset], 
+            batch_sizes=[run["batch_size"]] * 2, 
+            shuffles=[True, False],
+            logger=logger,
+            num_workers=CONFIG["general"]["num_data_workers"],
+            pin_memory=True, # TODO: check if this should be replaced with run["lazy"]
+            persistent_workers=True
+        )
 
     test_dataloader = to_dataloaders(
         [test_data], 
@@ -322,8 +302,8 @@ def _process_model(
     run: dict[str, Any], 
     model_id: int | None, 
     dataset: MEGDataset,
-    train_dataloader: DataLoader[Any], 
-    val_dataloader: DataLoader[Any],
+    train_dataloader: DataLoader[Any] | None, 
+    val_dataloader: DataLoader[Any] | None,
     test_dataloader: DataLoader[Any],
     logger: logging.Logger,
     pruning_callback: OptunaPruningCallback=None
@@ -342,9 +322,9 @@ def _process_model(
     :param dataset: the dataset.
     :type dataset: MEGDataset
     :param train_dataloader: Dataloader for training data.
-    :type train_dataloader: DataLoader[Any]
+    :type train_dataloader: DataLoader[Any] | None
     :param val_dataloader: Dataloader for validation data.
-    :type val_dataloader: DataLoader[Any]
+    :type val_dataloader: DataLoader[Any] | None
     :param test_dataloader: Dataloader for test data.
     :type test_dataloader: DataLoader[Any]
     :param logger: Logger to log to.
@@ -354,6 +334,10 @@ def _process_model(
     :returns: In order, the training and validation accuracies.
     :rtype: tuple[float, float]
     """
+    assert run["k_folds"] > 1 or (
+        train_dataloader is not None and val_dataloader is not None
+    ), "Data not provided for non cross-validation run."
+
     ############ Change output dir to specific run folder. #############
     if model_id is not None:
         handle_output.OUTPUT_DIR = \
@@ -520,15 +504,15 @@ def _process_model(
     ####################################################################
     #                         Test the model.                          #
     ####################################################################
-    # logger.info("Evaluating on test set.")
-    # logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING!!")
-    # test_accuracy = evaluate(
-    #     dataloader=test_dataloader, 
-    #     model=model,
-    #     device=DEVICE,
-    #     logger=logger,
-    # )
-    # logger.critical(f"Test accuracy: {test_accuracy}")
+    logger.info("Evaluating on test set.")
+    logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING!!")
+    test_accuracy = evaluate(
+        dataloader=test_dataloader, 
+        model=model,
+        device=DEVICE,
+        logger=logger,
+    )
+    logger.critical(f"Test accuracy: {test_accuracy}")
 
     return \
         max(train_metrics["accuracy"]), \

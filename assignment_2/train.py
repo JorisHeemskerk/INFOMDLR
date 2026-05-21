@@ -10,19 +10,19 @@ import torch
 
 import numpy as np
 from torch import nn
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 from typing import Callable
 
 from tune import OptunaPruningCallback
-
+from meg_dataset import MEGDataset
 
 METRICS = {
     "accuracy": lambda y_hat, y: (y_hat.argmax(dim=-1) == y).float().mean(),
 }
 
 def train_cross_validation(
-    full_train_dataset: Dataset,
+    full_train_dataset: MEGDataset,
     k_folds: int,
     dataset_to_dataloader_function: Callable,
     model: nn.Module,
@@ -89,7 +89,6 @@ def train_cross_validation(
     initial_optimiser_state = copy.deepcopy(optimiser.state_dict())
 
     s, e = "-----=====", "=====-----"
-    fold_size = len(full_train_dataset) // k_folds
     for k in range(k_folds):
         logger.info(f"{s}{'#' * (len(str(k+1)) + len(str(k_folds)) + 10)}{e}")
         logger.info(f"{s}# Fold {k+1}/{k_folds} #{e}")
@@ -98,11 +97,12 @@ def train_cross_validation(
         model.load_state_dict(copy.deepcopy(initial_model_state))
         optimiser.load_state_dict(copy.deepcopy(initial_optimiser_state))
 
-        val_idx = list(range(k * fold_size, (k + 1) * fold_size))
-        train_idx = (
-            list(range(0, k * fold_size))
-            + list(range((k + 1) * fold_size, len(full_train_dataset)))
+        train_idx, val_idx = full_train_dataset.get_fold_indices(
+            k, 
+            k_folds, 
+            logger
         )
+        full_train_dataset.fit_normalisation(train_idx)
 
         train_dataloader = dataset_to_dataloader_function(
             Subset(full_train_dataset, train_idx)

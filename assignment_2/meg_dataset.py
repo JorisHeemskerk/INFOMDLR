@@ -2,6 +2,8 @@ import os
 import h5py
 import torch
 import numpy as np
+import logging
+
 from torch.utils.data import Dataset
 from typing import Optional, Union
 
@@ -53,9 +55,8 @@ class MEGDataset(Dataset):
         self.dtype = dtype
         self.lazy = lazy
 
-        # Normalisation statistics – set via fit_normalisation().
-        self.mean: Optional[np.ndarray] = None  # shape (n_sensors, 1)
-        self.std: Optional[np.ndarray] = None  # shape (n_sensors, 1)
+        self.mean: Optional[np.ndarray] = None
+        self.std: Optional[np.ndarray] = None 
 
         if isinstance(data_dirs, str):
             data_dirs = [data_dirs]
@@ -87,7 +88,6 @@ class MEGDataset(Dataset):
         else:
             probe = self._load_file(self._file_paths[0])
             self._matrices = [None] * len(self._file_paths)
-            # cache first file
             self._matrices[0] = probe
 
         self._index: list[tuple[int, int]] = []
@@ -114,7 +114,7 @@ class MEGDataset(Dataset):
         E.g.  'rest_105923_1.h5'  ->  'rest_105923'
         """
         fname = os.path.basename(filepath) # 'rest_105923_1.h5'
-        no_ext = fname[: fname.rfind(".")] # 'rest_105923_1'
+        no_ext = fname[:fname.rfind(".")] # 'rest_105923_1'
         return "_".join(no_ext.split("_")[:-1]) # 'rest_105923'
 
     @staticmethod
@@ -130,6 +130,13 @@ class MEGDataset(Dataset):
             f"Expected one of {list(LABEL_MAP.keys())}."
         )
 
+    @staticmethod
+    def _get_chunk_number(path: str) -> int:
+        """Extract the trailing chunk number from a filename."""
+        fname = os.path.basename(path) # 'rest_113922_3.h5'
+        no_ext = fname[:fname.rfind(".")] # 'rest_113922_3'
+        return int(no_ext.split("_")[-1]) # 3
+
     def _load_file(self, path: str)-> np.ndarray:
         """
         Load one .h5 file and return a float32 array of shape
@@ -143,7 +150,9 @@ class MEGDataset(Dataset):
         return matrix
 
     def _get_matrix(self, file_idx: int)-> np.ndarray:
-        """Return the matrix for file_idx, loading lazily if necessary."""
+        """
+        Return the matrix for file_idx, loading lazily if necessary.
+        """
         if self._matrices[file_idx] is None:
             self._matrices[file_idx] = self._load_file(
                 self._file_paths[file_idx]
@@ -177,7 +186,7 @@ class MEGDataset(Dataset):
     #     zero_std = np.where(self.std == 0)[0]
     #     if zero_std.size > 0:
     #         raise ValueError(
-    #             f"Standard deviation is zero for sensors: {zero_std.tolist()}."
+    #             f"Standard deviation is 0 for sensors: {zero_std.tolist()}."
     #             " Cannot normalise."
     #         )
 
@@ -193,21 +202,22 @@ class MEGDataset(Dataset):
         """
         n_sensors = self._get_matrix(0).shape[0]
 
-        # Accumulate per-channel sum and sum-of-squares in float64 for precision.
         running_sum = np.zeros((n_sensors, 1), dtype=np.float64)
         running_ssq = np.zeros((n_sensors, 1), dtype=np.float64)
-        running_n   = 0
+        running_n = 0
 
         for i in indices:
             file_idx, t_start = self._index[i]
-            window = self._get_matrix(file_idx)[:, t_start : t_start + self.window_size]
+            window = self._get_matrix(
+                file_idx
+            )[:, t_start : t_start + self.window_size]
             running_sum += window.sum(axis=1, keepdims=True)
             running_ssq += (window ** 2).sum(axis=1, keepdims=True)
-            running_n   += self.window_size
+            running_n += self.window_size
 
         mean = running_sum / running_n
-        var  = running_ssq / running_n - mean ** 2
-        std  = np.sqrt(np.maximum(var, 0.0))  # clamp prevents sqrt of tiny negatives from float arithmetic
+        var = running_ssq / running_n - mean ** 2
+        std = np.sqrt(np.maximum(var, 0.0))
 
         zero_std = np.where(std == 0)[0]
         if zero_std.size > 0:
@@ -216,11 +226,79 @@ class MEGDataset(Dataset):
         self.mean = mean.astype(np.float32)
         self.std  = std.astype(np.float32)
 
+    def get_fold_indices(
+        self, 
+        current_k: int, 
+        total_k: int,
+        logger: logging.Logger | None
+    ) -> tuple[list[int], list[int]]:
+        """
+        Return train and validation window indices for one fold of
+        file-level k-fold cross validation.
+
+        Files are distributed across folds as evenly as possible.  All
+        windows that belong to the files assigned to *current_k* become
+        the validation set; all other windows become the training set.
+
+        :param current_k: Zero-based index of the current fold 
+            (0 … total_k-1).
+        :type current_k: int
+        :param total_k: Total number of folds.
+        :type total_k: int
+        :param logger: Logger to log to.
+        :type logger: logging.Logger | None
+        :return: (train_indices, val_indices) indices into self._index.
+        :rtype: tuple[list[int], list[int]]
+        """
+        if not (0 <= current_k < total_k):
+            raise ValueError(
+                f"current_k must be in [0, total_k), "
+                f"got current_k={current_k}, total_k={total_k}."
+            )
+        n_files = len(self._file_paths)
+        if total_k > n_files:
+            raise ValueError(
+                f"total_k ({total_k}) cannot exceed the number of files "
+                f"({n_files})."
+            )
+
+        file_to_fold: list[int] = [
+            (self._get_chunk_number(p) - 1) % total_k
+            for p in self._file_paths
+        ]
+        val_files: set[int] = {
+            i for i, fold in enumerate(file_to_fold) if fold == current_k
+        }
+
+        if logger is not None:
+            for i, path in enumerate(self._file_paths):
+                fname = os.path.basename(path)
+                if i in val_files:
+                    logger.debug(
+                        f"Fold {current_k + 1}/{total_k} - validation: {fname}"
+                    )
+                else:
+                    logger.debug(
+                        f"Fold {current_k + 1}/{total_k} - train:      {fname}"
+                    )
+
+        train_idx: list[int] = []
+        val_idx: list[int] = []
+        for win_idx, (file_idx, _) in enumerate(self._index):
+            if file_idx in val_files:
+                val_idx.append(win_idx)
+            else:
+                train_idx.append(win_idx)
+
+        return train_idx, val_idx
+
     def get_n_sensors(self)-> int:
         """
         Get the number of MEG sensor channels (rows) in each window.
         """
         return self._get_matrix(0).shape[0]
+        # return min(self._get_matrix(0).shape[0], 5) # TODO: REMOVE THIS LINE AND COMMENT THE TOP ONE BACK IN
+
 
     def __len__(self)-> int:
         return len(self._index)
@@ -239,11 +317,14 @@ class MEGDataset(Dataset):
         file_idx, t_start = self._index[idx]
         matrix = self._get_matrix(file_idx)
         window = matrix[:, t_start : t_start + self.window_size].copy()
+        # window = matrix[:5, t_start : t_start + self.window_size].copy() # TODO: REMOVE THIS LINE AND COMMENT THE TOP ONE BACK IN
 
         if self.mean is not None and self.std is not None:
             window = (window - self.mean) / self.std
+            # window = (window - self.mean[:5]) / self.std[:5] # TODO: REMOVE THIS LINE AND COMMENT THE TOP ONE BACK IN
 
         label = self._file_labels[file_idx]
+
 
         return (
             torch.tensor(window, dtype=self.dtype),
