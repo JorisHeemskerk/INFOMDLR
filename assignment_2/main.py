@@ -28,6 +28,7 @@ from create_logger import create_logger
 from config.config_validation_template import CONFIG_TEMPLATE
 from data import to_dataloaders
 from eeg_net import EEGNet
+from eeg_net_transformer import EEGNetTransformer
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
 from tune import tune_job, OptunaPruningCallback, TUNABLE_PARAMS
@@ -265,7 +266,7 @@ def _process_run(
 
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
-        MODELS = ["eegnet"]
+        MODELS = ["eegnet", "eegnettransformer"]
         all_model_results = {model: None for model in MODELS}
         for model_id, model in enumerate(MODELS):
             model_specific_run = copy.deepcopy(run)
@@ -367,6 +368,14 @@ def _process_model(
         ),
         "eegnet": (
             EEGNet, {
+                "chunk_size": run["window_size"],
+                "num_electrodes": dataset.get_n_sensors(),
+                "num_classes": len(LABEL_MAP),
+                "logger": logger,
+            }
+        ),
+        "eegnettransformer": (
+            EEGNetTransformer, {
                 "chunk_size": run["window_size"],
                 "num_electrodes": dataset.get_n_sensors(),
                 "num_classes": len(LABEL_MAP),
