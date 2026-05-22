@@ -28,7 +28,7 @@ jobs:
         optimiser: "adam"
         learning_rate: [0.0001]
         weight_decay: [0.0001]
-        n_epochs: 10
+        n_epochs: 20
         k_folds: 8  # use 1 to ignore and 8 to use 1 whole file vor val.
         ### Tune ###
         # tune: true
