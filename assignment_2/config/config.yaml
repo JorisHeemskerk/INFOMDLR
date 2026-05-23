@@ -13,7 +13,7 @@ general:
 jobs:
     job0:
         ### Data ###
-        dataset: cross # Can be from [intra, cross]
+        dataset: intra # Can be from [intra, cross]
         window_size: [32]
         stride: [32]
         downsample_factor: 4
@@ -21,15 +21,15 @@ jobs:
         train_val_split: [.8, .2]
         batch_size: [128]
         ### Model ###
-        model: "eegnettransformer" # Can be from: [baseline, eegnet, eegnettransformer, all]
+        model: "baseline" # Can be from: [baseline, eegnet, eegnettransformer, all]
         model_params: 
             hidden_size: 64
             num_layers: 1
         optimiser: "adam"
         learning_rate: [0.0001]
         weight_decay: [0.0001]
-        n_epochs: 20
-        k_folds: 8  # use 1 to ignore and 8 to use 1 whole file vor val.
+        n_epochs: 2
+        k_folds: 1  # use 1 to ignore and 8 to use 1 whole file vor val.
         ### Tune ###
         # tune: true
         # n_trials: 3

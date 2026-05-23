@@ -4,11 +4,14 @@ This code was previously part of Joris Heemskerk's & Bas de Blok's prior
 work for the Computer Vision course, and is being re-used here.
 """
 
-import torch
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
+import torch
 
 from typing import Any
+from sklearn.metrics import confusion_matrix
 
 
 def visualise_training(
@@ -177,3 +180,56 @@ def visualise_tuning(
         f"{('__' + models[0].title()) if len(models) == 1 else ''}.png"
     )
     plt.close(fig)
+
+def plot_confusion_matrix(
+    y_true: np.ndarray, 
+    y_pred: np.ndarray, 
+    class_names: list[str],
+    normalise: str | None,
+    name: str,
+    output_dir: str,
+    logger: logging.Logger
+)-> None:
+    """
+    Plot a confusion matrix.
+
+    :param y_true: The true labels.
+    :type y_true: np.ndarray
+    :param y_pred: The predicted labels.
+    :type y_pred: np.ndarray
+    :param class_names: names of all classes.
+    :type class_names: list[str]
+    :param normalise: Normalise the class values.
+    :type normalise: str | None
+    :param name: Name of the set represented by the matrix.
+    :type name: str
+    :param output_dir: Where to save the images to.
+    :type output_dir: str
+    :param logger: Logger to log to.
+    :type logger: logging.Logger
+    """
+    y_pred = y_pred.argmax(dim=-1).cpu().numpy()
+
+    cm = confusion_matrix(y_true, y_pred, normalize=normalise)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt=".2f" if normalise else "d",
+        cmap="Blues",
+        xticklabels=class_names,
+        yticklabels=class_names,
+        ax=ax
+    )
+
+    filename = f"{output_dir}{name}_Confusion_Matrix.png"
+
+    ax.set_xlabel("Predicted Label")
+    ax.set_ylabel("True Label")
+    ax.set_title(f"{name} Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(
+        filename
+    )
+    plt.close(fig)
+    logger.info(f"Saving confusion matrix to {filename}")
