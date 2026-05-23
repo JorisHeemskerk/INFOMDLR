@@ -7,6 +7,7 @@ import yaml
 
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner
+from optuna.visualization import plot_parallel_coordinate
 from typing import Any, Callable
 
 import handle_output
@@ -270,3 +271,14 @@ def _save_study_summary(
             f,
         )
     logger.info(f"Best params saved to {best_path}")
+
+    fig = plot_parallel_coordinate(
+        study=study,
+        params=list(study.best_trial.params.keys()),
+        target_name="Validation Loss"
+    )
+    fig.update_layout(
+        title="Hyperparameter Tuning - Parallel Coordinates",
+    )
+    fig.write_image(os.path.join(output_dir, "parallel_coordinates.png"))
+    logger.info(f"Parallel coordinates plot saved to {output_dir}")

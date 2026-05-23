@@ -10,3 +10,4 @@ h5py==3.16.0
 optuna==4.8.0
 pandas==3.0.3
 seaborn== 0.13.2
+kaleido==1.3.0

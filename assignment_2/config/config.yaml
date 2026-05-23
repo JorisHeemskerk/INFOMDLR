@@ -15,7 +15,7 @@ jobs:
         ### Data ###
         dataset: intra # Can be from [intra, cross]
         window_size: [32]
-        stride: [32]
+        stride: [16, 32]
         downsample_factor: 4
         lazy: true
         train_val_split: [.8, .2]
@@ -26,11 +26,11 @@ jobs:
             hidden_size: 64
             num_layers: 1
         optimiser: "adam"
-        learning_rate: [0.0001]
+        learning_rate: [0.0001, 0.001]
         weight_decay: [0.0001]
         n_epochs: 2
         k_folds: 1  # use 1 to ignore and 8 to use 1 whole file vor val.
         ### Tune ###
-        # tune: true
-        # n_trials: 3
-        # n_startup_trials: 1
+        tune: true
+        n_trials: 3
+        n_startup_trials: 0
