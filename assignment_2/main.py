@@ -514,50 +514,50 @@ def _process_model(
     )
 
     ######### Plot the confusion matrix for train and validation sets #########
-    if run["k_folds"] == 1:
-        _, val_predictions, val_targets = evaluate(
-            dataloader=val_dataloader, 
-            model=model,
-            device=DEVICE,
-            logger=logger,
-        )
+    # if run["k_folds"] == 1:
+    #     _, val_predictions, val_targets = evaluate(
+    #         dataloader=val_dataloader, 
+    #         model=model,
+    #         device=DEVICE,
+    #         logger=logger,
+    #     )
 
-        plot_confusion_matrix(
-            val_targets,
-            val_predictions,
-            LABEL_MAP.keys(),
-            None,
-            "validation",
-            handle_output.OUTPUT_DIR,
-            logger
-        )
+    #     plot_confusion_matrix(
+    #         val_targets,
+    #         val_predictions,
+    #         LABEL_MAP.keys(),
+    #         None,
+    #         "validation",
+    #         handle_output.OUTPUT_DIR,
+    #         logger
+    #     )
 
-    else:
-        train_dataloader = to_dataloaders(
-            [dataset], 
-            batch_sizes=[run["batch_size"]], 
-            shuffles=[False],
-            logger=logger,
-            num_workers=0,
-            pin_memory=False,
-        )[0]
+    # else:
+    #     train_dataloader = to_dataloaders(
+    #         [dataset], 
+    #         batch_sizes=[run["batch_size"]], 
+    #         shuffles=[False],
+    #         logger=logger,
+    #         num_workers=0,
+    #         pin_memory=False,
+    #     )[0]
 
-    _, train_predictions, train_targets = evaluate(
-        dataloader=train_dataloader, 
-        model=model,
-        device=DEVICE,
-        logger=logger,
-    )
+    # _, train_predictions, train_targets = evaluate(
+    #     dataloader=train_dataloader, 
+    #     model=model,
+    #     device=DEVICE,
+    #     logger=logger,
+    # )
 
-    plot_confusion_matrix(
-        train_targets,
-        train_predictions,
-        LABEL_MAP.keys(),
-        None,
-        "train",
-        handle_output.OUTPUT_DIR,
-        logger
-    )
+    # plot_confusion_matrix(
+    #     train_targets,
+    #     train_predictions,
+    #     LABEL_MAP.keys(),
+    #     None,
+    #     "train",
+    #     handle_output.OUTPUT_DIR,
+    #     logger
+    # )
 
     ####################################################################
     #                         Test the model.                          #

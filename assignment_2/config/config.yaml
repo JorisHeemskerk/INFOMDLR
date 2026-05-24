@@ -14,12 +14,12 @@ jobs:
     job0:
         ### Data ###
         dataset: intra # Can be from [intra, cross]
-        window_size: [32]
+        window_size: [16, 32]
         stride: [16, 32]
         downsample_factor: 4
         lazy: true
         train_val_split: [.8, .2]
-        batch_size: [128]
+        batch_size: [32, 128]
         ### Model ###
         model: "baseline" # Can be from: [baseline, eegnet, eegnettransformer, all]
         model_params: 
@@ -27,8 +27,8 @@ jobs:
             num_layers: 1
         optimiser: "adam"
         learning_rate: [0.0001, 0.001]
-        weight_decay: [0.0001]
-        n_epochs: 2
+        weight_decay: [0.0001, 0.001]
+        n_epochs: 1
         k_folds: 1  # use 1 to ignore and 8 to use 1 whole file vor val.
         ### Tune ###
         tune: true
