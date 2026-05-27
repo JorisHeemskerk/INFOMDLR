@@ -5,8 +5,11 @@ import os
 import time
 import yaml
 
+import plotly.graph_objects as go
+
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner
+from optuna.visualization import plot_parallel_coordinate
 from typing import Any, Callable
 
 import handle_output
@@ -180,7 +183,7 @@ def tune_job(
         estimate = s_per_trial * n_trials
 
         trail_progress_message = \
-            f"\033[36mTrial {trial_i}  {trial_progress}%|" \
+            f"\033[36mTrial {trial_i}  {round((trial_i + 1) / n_trials * 100, 2)}%|" \
             f"{'#' * trial_progress}{' ' * (50 - trial_progress)}| " \
             f"{trial_i + 1}/{n_trials} [{int(elapsed // 60)}:" \
             f"{int(elapsed % 60)}<{int(estimate // 60)}:" \
@@ -245,7 +248,9 @@ def _save_study_summary(
     logger: logging.Logger,
 )-> None:
     """
-    Write a trial overview CSV and a best-params YAML to *output_dir*.
+    Write a trial overview CSV, a best-params YAML and a parallel
+    coordinates plot reflecting the parameters used in the study to 
+    *output_dir*.
 
     :param study: The hyperparameter optimization study.
     :type study: optuna.Study
@@ -270,3 +275,53 @@ def _save_study_summary(
             f,
         )
     logger.info(f"Best params saved to {best_path}")
+    
+    param_cols = [
+        f"params_{key}"
+        for key in TUNABLE_PARAMS
+        if f"params_{key}" in df.columns
+    ]
+    plot_df = df[df["state"] == "COMPLETE"].dropna(
+        subset=param_cols + ["value"]
+    ).copy()
+ 
+    if plot_df.empty:
+        logger.warning("No completed trials to plot in parallel coordinates.")
+        return
+ 
+    dimensions = []
+    for col in param_cols:
+        values = plot_df[col].tolist()
+        dimensions.append(
+            go.parcoords.Dimension(
+                values=values,
+                label=col.replace("params_", "").replace("_", " ").title(),
+                range=[min(values), max(values)],
+                tickformat=".2e" if TUNABLE_PARAMS[
+                    col.replace("params_", "")
+                ][0] == "float" else "d",
+            )
+        )
+ 
+    objective_values = plot_df["value"].tolist()
+    fig = go.Figure(
+        go.Parcoords(
+            line=dict(
+                color=objective_values,
+                colorscale="Plasma_r",
+                colorbar=dict(title="Validation Loss", tickformat=".2e"),
+                showscale=True,
+                cmin=min(objective_values),
+                cmax=max(objective_values),
+            ),
+            dimensions=dimensions,
+        )
+    )
+    
+    fig.update_layout(
+        margin=dict(l=80, r=80, t=40, b=40),
+    )
+ 
+    plot_path = os.path.join(output_dir, "parallel_coordinates.png")
+    fig.write_image(plot_path)
+    logger.info(f"Parallel coordinates plot saved to {plot_path}")

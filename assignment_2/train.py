@@ -372,7 +372,7 @@ def evaluate(
     model: nn.Module,
     device: str,
     logger: logging.Logger,
-)-> tuple[float]:
+)-> tuple[float, torch.Tensor, torch.Tensor]:
     """
     Evaluate a model by calculating the METRICS on a dataset.
 
@@ -384,8 +384,9 @@ def evaluate(
     :type device: str
     :param logger: Logger to log to.
     :type logger: logging.Logger
-    :return: METRICS on the dataset
-    :rtype: tuple[float]
+    :return: METRICS on the dataset, predictions made and corresponding
+        targets.
+    :rtype: tuple[float, torch.Tensor, torch.Tensor]
     """
     model.eval()
     predictions = []
@@ -402,4 +403,10 @@ def evaluate(
     predictions = torch.cat(predictions)
     targets = torch.cat(targets)
 
-    return tuple([f(predictions, targets).item() for f in METRICS.values()])
+    return (
+        tuple(
+            [f(predictions, targets).item() for f in METRICS.values()]
+        ),
+        predictions,
+        targets
+    )

@@ -32,7 +32,10 @@ from eeg_net_transformer import EEGNetTransformer
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
 from tune import tune_job, OptunaPruningCallback, TUNABLE_PARAMS
-from visualise import visualise_training, visualise_tuning
+from visualise import \
+    visualise_training, \
+    visualise_tuning, \
+    plot_confusion_matrix
 
 DATASET_MAPPING = {
     "intra": {
@@ -510,18 +513,74 @@ def _process_model(
         val_metrics_std
     )
 
+    ######### Plot the confusion matrix for train and validation sets #########
+    # if run["k_folds"] == 1:
+    #     _, val_predictions, val_targets = evaluate(
+    #         dataloader=val_dataloader, 
+    #         model=model,
+    #         device=DEVICE,
+    #         logger=logger,
+    #     )
+
+    #     plot_confusion_matrix(
+    #         val_targets,
+    #         val_predictions,
+    #         LABEL_MAP.keys(),
+    #         None,
+    #         "validation",
+    #         handle_output.OUTPUT_DIR,
+    #         logger
+    #     )
+
+    # else:
+    #     train_dataloader = to_dataloaders(
+    #         [dataset], 
+    #         batch_sizes=[run["batch_size"]], 
+    #         shuffles=[False],
+    #         logger=logger,
+    #         num_workers=0,
+    #         pin_memory=False,
+    #     )[0]
+
+    # _, train_predictions, train_targets = evaluate(
+    #     dataloader=train_dataloader, 
+    #     model=model,
+    #     device=DEVICE,
+    #     logger=logger,
+    # )
+
+    # plot_confusion_matrix(
+    #     train_targets,
+    #     train_predictions,
+    #     LABEL_MAP.keys(),
+    #     None,
+    #     "train",
+    #     handle_output.OUTPUT_DIR,
+    #     logger
+    # )
+
     ####################################################################
     #                         Test the model.                          #
     ####################################################################
-    logger.info("Evaluating on test set.")
-    logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING!!")
-    test_accuracy = evaluate(
-        dataloader=test_dataloader, 
-        model=model,
-        device=DEVICE,
-        logger=logger,
-    )
-    logger.critical(f"Test accuracy: {test_accuracy}")
+    # logger.info("Evaluating on test set.")
+    # logger.error("ONLY DO THIS AFTER HYPERPAREMTER TUNING!!")
+    # test_accuracy, test_predictions, test_targets = evaluate(
+    #     dataloader=test_dataloader, 
+    #     model=model,
+    #     device=DEVICE,
+    #     logger=logger,
+    # )
+    # logger.critical(f"Test accuracy: {test_accuracy}")
+
+    # plot_confusion_matrix(
+    #     test_targets,
+    #     test_predictions,
+    #     LABEL_MAP.keys(),
+    #     None,
+    #     "test",
+    #     handle_output.OUTPUT_DIR,
+    #     logger
+    # )
 
     return \
         max(train_metrics["accuracy"]), \
