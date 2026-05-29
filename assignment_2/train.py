@@ -131,6 +131,7 @@ def train_cross_validation(
             device=device,
             logger=logger,
             pruning_callback=pruning_callback,
+            pbar_preamble=f"Fold{k + 1}/{k_folds + 1}"
         )
 
         # Track the model from the fold with the lowest mean val loss.
@@ -172,7 +173,8 @@ def train(
     n_epochs: int,
     device: str,
     logger: logging.Logger,
-    pruning_callback: OptunaPruningCallback=None
+    pruning_callback: OptunaPruningCallback=None,
+    pbar_preamble: str=''
 )-> tuple[
     list[float],
     dict[str, list[float]],
@@ -202,6 +204,8 @@ def train(
     :param pruning_callback: Optional parameter; used in training for 
         hyperband pruning. (DEFAULT=None)
     :type pruning_callback: OptunaPruningCallback
+    :param pbar_preamble: Preamble for the progress bar.
+    :type pbar_preamble: str
     :return: Per epoch train losses and metrics and validation losses 
         and metrics. Along with the model checkpoint that achieved the 
         best validation loss.
@@ -216,7 +220,10 @@ def train(
     best = None
     train_losses_per_epoch, train_metrics_per_epoch = [], [] 
     val_losses_per_epoch, val_metrics_per_epoch = [], []
-    for i in tqdm(range(n_epochs), "\033[33mEpoch"):
+    for i in tqdm(
+        range(n_epochs), 
+        f"\033[33m{pbar_preamble}{' ' if len(pbar_preamble) > 0 else ''}Epoch"
+    ):
         print("\033[37m", end="") # Reset colour.
         logger.info(f"-----===== Epoch {i} (training) =====-----")
         train_loss, train_metrics = train_epoch(

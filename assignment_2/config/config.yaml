@@ -21,7 +21,7 @@ jobs:
         train_val_split: [.8, .2] # Only used if k_folds > 1
         batch_size: [128]
         ### Model ###
-        model: "eegnettransformer" # Can be from: [baseline, eegnet, eegnettransformer, all]
+        model: "baseline" # Can be from: [baseline, eegnet, eegnettransformer, all]
         model_params: # Contents depend on the model used
             hidden_size: 64
             num_layers: 1
