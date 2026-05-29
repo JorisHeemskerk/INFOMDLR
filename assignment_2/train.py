@@ -131,7 +131,7 @@ def train_cross_validation(
             device=device,
             logger=logger,
             pruning_callback=pruning_callback,
-            pbar_preamble=f"Fold{k + 1}/{k_folds + 1}"
+            pbar_preamble=f"Fold {k + 1}/{k_folds} -"
         )
 
         # Track the model from the fold with the lowest mean val loss.
