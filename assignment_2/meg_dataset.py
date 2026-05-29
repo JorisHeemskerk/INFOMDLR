@@ -113,9 +113,9 @@ class MEGDataset(Dataset):
         strip the directory, then drop the trailing '_<chunk>.h5' part.
         E.g.  'rest_105923_1.h5'  ->  'rest_105923'
         """
-        fname = os.path.basename(filepath) # 'rest_105923_1.h5'
-        no_ext = fname[:fname.rfind(".")] # 'rest_105923_1'
-        return "_".join(no_ext.split("_")[:-1]) # 'rest_105923'
+        fname = os.path.basename(filepath)
+        no_ext = fname[:fname.rfind(".")]
+        return "_".join(no_ext.split("_")[:-1])
 
     @staticmethod
     def _parse_label(filename: str)-> int:
@@ -133,9 +133,9 @@ class MEGDataset(Dataset):
     @staticmethod
     def _get_chunk_number(path: str) -> int:
         """Extract the trailing chunk number from a filename."""
-        fname = os.path.basename(path) # 'rest_113922_3.h5'
-        no_ext = fname[:fname.rfind(".")] # 'rest_113922_3'
-        return int(no_ext.split("_")[-1]) # 3
+        fname = os.path.basename(path)
+        no_ext = fname[:fname.rfind(".")]
+        return int(no_ext.split("_")[-1])
 
     def _load_file(self, path: str)-> np.ndarray:
         """
@@ -158,37 +158,6 @@ class MEGDataset(Dataset):
                 self._file_paths[file_idx]
             )
         return self._matrices[file_idx]
-
-    # NOTE: this one is better but does not fit in ram.
-    # def fit_normalisation(self, indices: list[int]) -> None:
-    #     """
-    #     Compute per-channel (per-sensor) mean and standard deviation from
-    #     the windows identified by *indices* (which should be training
-    #     indices only).  Sets `self.mean` and `self.std`, both shaped
-    #     `(n_sensors, 1)`.
-
-    #     :param indices: Indices in the partition used to normalise.
-    #     :type indices: list[int]
-    #     """
-    #     n_sensors = self._get_matrix(0).shape[0]
-    #     accumulator = []
-
-    #     for i in indices:
-    #         file_idx, t_start = self._index[i]
-    #         matrix = self._get_matrix(file_idx)
-    #         window = matrix[:, t_start : t_start + self.window_size]
-    #         accumulator.append(window)
-
-    #     stacked = np.concatenate(accumulator, axis=1)
-    #     self.mean = stacked.mean(axis=1, keepdims=True).astype(np.float32)
-    #     self.std = stacked.std(axis=1,  keepdims=True).astype(np.float32)
-
-    #     zero_std = np.where(self.std == 0)[0]
-    #     if zero_std.size > 0:
-    #         raise ValueError(
-    #             f"Standard deviation is 0 for sensors: {zero_std.tolist()}."
-    #             " Cannot normalise."
-    #         )
 
     def fit_normalisation(self, indices: list[int]) -> None:
         """
@@ -292,12 +261,87 @@ class MEGDataset(Dataset):
 
         return train_idx, val_idx
 
+    def get_person_fold_indices(
+        self,
+        current_k: int,
+        total_k: int,
+        logger: logging.Logger | None,
+    ) -> tuple[list[int], list[int]]:
+        """
+        Return train and validation window indices for one fold of
+        person-level k-fold cross validation.
+
+        Unique subjects (inferred from the subject-ID segment of each
+        filename) are distributed across folds as evenly as possible.
+        All windows that belong to files of the subjects assigned to
+        `current_k` become the validation set. All other windows become
+        the training set.
+
+        :param current_k: Zero-based index of the current fold.
+        :type current_k: int
+        :param total_k: Total number of folds.
+        :type total_k: int
+        :param logger: Logger to log to.
+        :type logger: logging.Logger | None
+        :return: (train_indices, val_indices) indices into self._index.
+        :rtype: tuple[list[int], list[int]]
+        """
+        if not (0 <= current_k < total_k):
+            raise ValueError(
+                f"current_k must be in [0, total_k), "
+                f"got current_k={current_k}, total_k={total_k}."
+            )
+
+        def _get_subject_id(path: str) -> str:
+            return self._get_dataset_name(path).split("_")[-1]
+
+        subjects: list[str] = sorted(
+            {_get_subject_id(p) for p in self._file_paths}
+        )
+        n_subjects = len(subjects)
+
+        if total_k != n_subjects:
+            raise NotImplementedError(
+                f"total_k ({total_k}) must be equal to the number of unique "
+                f"subjects ({n_subjects})."
+            )
+
+        subject_to_fold: dict[str, int] = {
+            s: idx % total_k for idx, s in enumerate(subjects)
+        }
+        val_subjects: set[str] = {
+            s for s, fold in subject_to_fold.items() if fold == current_k
+        }
+
+        if logger is not None:
+            for path in self._file_paths:
+                fname = os.path.basename(path)
+                subject = _get_subject_id(path)
+                if subject in val_subjects:
+                    logger.debug(
+                        f"Fold {current_k + 1}/{total_k} - validation: {fname}"
+                    )
+                else:
+                    logger.debug(
+                        f"Fold {current_k + 1}/{total_k} - train:      {fname}"
+                    )
+
+        train_idx: list[int] = []
+        val_idx: list[int] = []
+        for win_idx, (file_idx, _) in enumerate(self._index):
+            subject = _get_subject_id(self._file_paths[file_idx])
+            if subject in val_subjects:
+                val_idx.append(win_idx)
+            else:
+                train_idx.append(win_idx)
+
+        return train_idx, val_idx
+
     def get_n_sensors(self)-> int:
         """
         Get the number of MEG sensor channels (rows) in each window.
         """
         return self._get_matrix(0).shape[0]
-        # return min(self._get_matrix(0).shape[0], 5) # TODO: REMOVE THIS LINE AND COMMENT THE TOP ONE BACK IN
 
 
     def __len__(self)-> int:
@@ -317,11 +361,9 @@ class MEGDataset(Dataset):
         file_idx, t_start = self._index[idx]
         matrix = self._get_matrix(file_idx)
         window = matrix[:, t_start : t_start + self.window_size].copy()
-        # window = matrix[:5, t_start : t_start + self.window_size].copy() # TODO: REMOVE THIS LINE AND COMMENT THE TOP ONE BACK IN
 
         if self.mean is not None and self.std is not None:
             window = (window - self.mean) / self.std
-            # window = (window - self.mean[:5]) / self.std[:5] # TODO: REMOVE THIS LINE AND COMMENT THE TOP ONE BACK IN
 
         label = self._file_labels[file_idx]
 

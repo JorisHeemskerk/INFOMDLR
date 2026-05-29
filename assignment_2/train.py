@@ -97,11 +97,21 @@ def train_cross_validation(
         model.load_state_dict(copy.deepcopy(initial_model_state))
         optimiser.load_state_dict(copy.deepcopy(initial_optimiser_state))
 
-        train_idx, val_idx = full_train_dataset.get_fold_indices(
-            k, 
-            k_folds, 
-            logger
-        )
+        try:
+            logger.debug("Attempting to fold per person.")
+            # Only works if k_folds == participants.
+            train_idx, val_idx = full_train_dataset.get_person_fold_indices(
+                k, 
+                k_folds, 
+                logger
+            )
+        except NotImplementedError:
+            logger.debug("Failed. Now folding per file.")
+            train_idx, val_idx = full_train_dataset.get_fold_indices(
+                k, 
+                k_folds, 
+                logger
+            )
         full_train_dataset.fit_normalisation(train_idx)
 
         train_dataloader = dataset_to_dataloader_function(

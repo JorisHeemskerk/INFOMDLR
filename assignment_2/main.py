@@ -43,7 +43,11 @@ DATASET_MAPPING = {
         "test" : "assignment_2/data/Intra/test/"
     },
     "cross": {
-        "train" : "assignment_2/data/Cross/train/",
+        "train" : [
+            "assignment_2/data/Cross/train/",
+            # NOTE: The intra person is unique, thus added to cross:
+            "assignment_2/data/Intra/train/", 
+        ],
         "test" : [
             "assignment_2/data/Cross/test1/", 
             "assignment_2/data/Cross/test2/", 

@@ -14,6 +14,7 @@ jobs:
     job0:
         model: "rnn" # Can be from: [lstm, rnn, transformer, all]
         # dataset: "assignment_1/Xtrain.mat"
+        dataset: "assignment_1/Xtrain_interpolated_7.mat"
         window_size: [60]
         stride: [1]
         n_signals: 7
