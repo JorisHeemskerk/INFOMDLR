@@ -30,7 +30,20 @@ jobs:
         weight_decay: [0.0001]
         n_epochs: 10
         k_folds: 3  # use 1 to ignore, 3 to fold over people in the cross dataset, and 8 to use 1 file per task for val
-        ### Tune ###
-        # tune: true
-        # n_trials: 3
-        # n_startup_trials: 0
+        ## Tune ###
+        tune: true
+        n_trials: 3
+        n_startup_trials: 0
+        ### Model ###
+        model: "meggpt"
+        model_params:
+            hidden_size: 64
+            num_layers: 2
+            num_heads: 4
+            patch_size: 8
+            dropout: 0.1
+        optimiser: "adam"
+        learning_rate: [0.0001]
+        weight_decay: [0.0001]
+        n_epochs: 10
+        k_folds: 3

@@ -36,6 +36,7 @@ from visualise import \
     visualise_training, \
     visualise_tuning, \
     plot_confusion_matrix
+from meg_gpt import MEGGPT
 
 DATASET_MAPPING = {
     "intra": {
@@ -273,7 +274,7 @@ def _process_run(
 
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
-        MODELS = ["eegnet", "eegnettransformer"]
+        MODELS = ["eegnet", "eegnettransformer", "meggpt"]
         all_model_results = {model: None for model in MODELS}
         for model_id, model in enumerate(MODELS):
             model_specific_run = copy.deepcopy(run)
@@ -388,7 +389,20 @@ def _process_model(
                 "num_classes": len(LABEL_MAP),
                 "logger": logger,
             }
-        )
+        ),
+         "meggpt": (
+            MEGGPT, {
+                "num_electrodes": dataset.get_n_sensors(),
+                "chunk_size": run["window_size"],
+                "num_classes": len(LABEL_MAP),
+                "logger": logger,
+                "d_model": run["model_params"].get("hidden_size", 64),
+                "num_heads": run["model_params"].get("num_heads", 4),
+                "num_layers": run["model_params"].get("num_layers", 2),
+                "patch_size": run["model_params"].get("patch_size", 8),
+                "dropout": run["model_params"].get("dropout", 0.1),
+            }
+        ),
     }
     model = None
     for name, (cls, kwargs) in models.items():
