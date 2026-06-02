@@ -58,6 +58,19 @@ DATASET_MAPPING = {
 }
 
 
+def _get_param(job, key):
+    """Get a param value list, checking model_params first."""
+    if key in job.get("model_params", {}):
+        return job["model_params"][key]
+    return job[key]
+
+def _set_param(run_description, key, value):
+    """Set a param value, writing to model_params if it lives there."""
+    if key in run_description.get("model_params", {}):
+        run_description["model_params"][key] = value
+    else:
+        run_description[key] = value
+
 def _process_job(
     job: dict[str, Any], 
     job_id: int, 
@@ -118,21 +131,24 @@ def _process_job(
     tune_changes = False
     for key, values in job.items():
         if key in list(TUNABLE_PARAMS.keys()):
+            if key in job["model_params"].keys():
+                values = job["model_params"][key]
             if len(values) > 1:
                 tune_changes = True
                 tune_results = []
                 for i, value in enumerate(values):
                     run_description = copy.deepcopy(job)
                     for tune_key in list(TUNABLE_PARAMS.keys()):
-                        if len(job[tune_key]) > 1 and tune_key != key:
+                        param_values = _get_param(job, tune_key)
+                        if len(param_values) > 1 and tune_key != key:
                             logger.warning(
                                 "Multiple parameters provided for multiple tun"
                                 f"able parameters. The values for {tune_key} ("
-                                f"{job[tune_key]}) will be ignored and the fir"
-                                "st value will be used ({job[tune_key][0]})."
+                                f"{param_values}) will be ignored and the fir"
+                                f"st value will be used ({param_values[0]})."
                             )
-                        run_description[tune_key] = job[tune_key][0]
-                    run_description[key] = value
+                        _set_param(run_description, tune_key, param_values[0])
+                    _set_param(run_description, key, value)
                     logger.info(
                         f"----- Processing Job {job_id}, Run {i:3.0f}/"
                         f"{len(values)-1:3.0f} -----"
@@ -155,7 +171,10 @@ def _process_job(
     if not tune_changes:
         run_description = copy.deepcopy(job)
         for tune_key in list(TUNABLE_PARAMS.keys()):
-            run_description[tune_key] = job[tune_key][0]
+            if tune_key in job["model_params"].keys():
+                run_description["model_params"][tune_key] = job["model_params"][tune_key][0]
+            else:
+                run_description[tune_key] = job[tune_key][0]
         _process_run(
             run=run_description,
             run_id=None, 
@@ -203,6 +222,7 @@ def _process_run(
         data_dirs=DATASET_MAPPING[run["dataset"].lower()]["train"],
         window_size=run["window_size"],
         stride=run["stride"],
+        ommited_sensors=CONFIG["general"]["ommited_sensors"],
         downsample_factor=run["downsample_factor"],
         lazy=run["lazy"],
     )
@@ -213,6 +233,7 @@ def _process_run(
         data_dirs=DATASET_MAPPING[run["dataset"].lower()]["test"],
         window_size=run["window_size"],
         stride=1,
+        ommited_sensors=CONFIG["general"]["ommited_sensors"],
         downsample_factor=run["downsample_factor"],
         lazy=run["lazy"],
     )
@@ -366,11 +387,12 @@ def _process_model(
                 "network_shape": [
                     dataset.get_n_sensors() * run["window_size"], 
                     *(
-                        [run["model_params"]["hidden_size"]] * 
-                        run["model_params"]["num_layers"]
+                        [run["model_params"].get("hidden_size", 64)] * 
+                        run["model_params"].get("num_layers", 1)
                     ),
                     len(LABEL_MAP),
                 ],
+                "dropout": run["model_params"]["dropout"],
                 "logger": logger,
             }
         ),
@@ -379,6 +401,7 @@ def _process_model(
                 "chunk_size": run["window_size"],
                 "num_electrodes": dataset.get_n_sensors(),
                 "num_classes": len(LABEL_MAP),
+                # "dropout": run["model_params"]["dropout"],
                 "logger": logger,
             }
         ),
@@ -387,6 +410,7 @@ def _process_model(
                 "chunk_size": run["window_size"],
                 "num_electrodes": dataset.get_n_sensors(),
                 "num_classes": len(LABEL_MAP),
+                "dropout": run["model_params"]["dropout"],
                 "logger": logger,
             }
         ),

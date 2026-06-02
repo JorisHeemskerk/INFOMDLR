@@ -13,6 +13,7 @@ class Baseline(BaseModel):
     def __init__(
         self,
         network_shape: list[int],
+        dropout: float,
         logger: logging.Logger,
     ) -> None:
         """
@@ -34,6 +35,9 @@ class Baseline(BaseModel):
             if i < len(network_shape) - 2:
                 self.model.append(
                     nn.ReLU(),
+                )
+                self.model.append(
+                    nn.Dropout(p=dropout)
                 )
         self.model = nn.Sequential(*self.model)
 

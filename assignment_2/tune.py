@@ -18,9 +18,11 @@ import handle_output
 TUNABLE_PARAMS = {
     "learning_rate": ("float", True), # (type, log_scale)
     "weight_decay": ("float", True),
+    "dropout": ("float", True),
     "batch_size": ("int",False),
     "window_size": ("int", False),
     "stride": ("int", False),
+    "downsample_factor": ("int", False),
 }
 
 def _build_search_space(
@@ -159,9 +161,9 @@ def tune_job(
     )
     
     pruner = HyperbandPruner(
-        min_resource=1,
+        min_resource=job["min_epochs"],
         max_resource=job["n_epochs"],
-        reduction_factor=3,
+        reduction_factor=job["reduction_factor"],
     )
 
     study = optuna.create_study(

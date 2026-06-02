@@ -14,6 +14,7 @@ modify this code, at the express notion that a disclaimer was put in.
     ```yaml
     general:
         num_data_workers: _
+        ommited_sensors: _
     jobs:
         job0:
             dataset: _
@@ -26,6 +27,7 @@ modify this code, at the express notion that a disclaimer was put in.
 
             model: _
             model_params: _
+                dropout: _
             optimiser: _
             learning_rate: _
             weight_decay: _
@@ -48,9 +50,15 @@ CONFIG_TEMPLATE = {
                     'type': 'number',
                     'minimum': 1
                 },
+                'ommited_sensors': {
+                    'type': 'array',
+                    'items': {'type': 'number'},
+                    'minItems': 0
+                },
             },
             'required': [
                 'num_data_workers',
+                'ommited_sensors'
             ],
             'additionalProperties' : False
         },
@@ -74,8 +82,9 @@ CONFIG_TEMPLATE = {
                             'minItems': 1
                         },
                         'downsample_factor': {
-                            'type': 'number', 
-                            'minimum': 1
+                            'type': 'array',
+                            'items': {'type': 'number'},
+                            'minItems': 1
                         },
                         'lazy': {
                             'type': 'boolean', 
@@ -96,7 +105,18 @@ CONFIG_TEMPLATE = {
                             'type': 'string', 
                         },
                         'model_params': {
-                            'type': 'object', 
+                            'type': 'object',
+                            'properties': {
+                                'dropout': {
+                                    'type': 'array',
+                                    'items': {'type': 'number'},
+                                    'minItems': 1
+                                },
+                            },
+                            'required': [
+                                'dropout',
+                            ],
+                            'additionalProperties' : True
                         },
                         'optimiser': {
                             'type': 'string', 

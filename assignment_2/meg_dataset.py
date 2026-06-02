@@ -36,6 +36,7 @@ class MEGDataset(Dataset):
         data_dirs: Union[str, list[str]],
         window_size: int,
         stride: int,
+        ommited_sensors: list[int],
         downsample_factor: int=1,
         dtype: torch.dtype=torch.float32,
         lazy: bool=False,
@@ -76,6 +77,12 @@ class MEGDataset(Dataset):
             raise FileNotFoundError(
                 f"No .h5 files found in: {data_dirs}"
             )
+        
+        self._sensor_mask = np.ones(
+            self._peek_n_sensors(self._file_paths[0]),
+            dtype=bool
+        )
+        self._sensor_mask[ommited_sensors] = False
 
         # normal loading: read all matrices into RAM.
         # Lazy loading: only store file paths, open on demand.
@@ -136,6 +143,13 @@ class MEGDataset(Dataset):
         fname = os.path.basename(path)
         no_ext = fname[:fname.rfind(".")]
         return int(no_ext.split("_")[-1])
+    
+    @staticmethod
+    def _peek_n_sensors(path: str) -> int:
+        """Read sensor count"""
+        name = MEGDataset._get_dataset_name(path)
+        with h5py.File(path, "r") as f:
+            return f[name].shape[0]
 
     def _load_file(self, path: str)-> np.ndarray:
         """
@@ -147,7 +161,7 @@ class MEGDataset(Dataset):
             matrix = f[name][()].astype(np.float32)
         if self.downsample_factor > 1:
             matrix = matrix[:, ::self.downsample_factor]
-        return matrix
+        return matrix[self._sensor_mask]
 
     def _get_matrix(self, file_idx: int)-> np.ndarray:
         """
@@ -342,7 +356,6 @@ class MEGDataset(Dataset):
         Get the number of MEG sensor channels (rows) in each window.
         """
         return self._get_matrix(0).shape[0]
-
 
     def __len__(self)-> int:
         return len(self._index)
