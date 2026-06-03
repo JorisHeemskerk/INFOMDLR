@@ -236,6 +236,7 @@ output/*
 *.mp4
 *.pth
 output/*/
+*/output/*.yaml
 *.yml
 !*/data/.gitkeep
 *.csv
