@@ -37,6 +37,7 @@ from visualise import \
     visualise_tuning, \
     plot_confusion_matrix
 from meg_gpt import MEGGPT
+from meg_gcnet import MEGGCNet
 
 DATASET_MAPPING = {
     "intra": {
@@ -295,7 +296,7 @@ def _process_run(
 
     ############## Defer task to the individual model(s). ##############
     if run["model"].lower() == "all":
-        MODELS = ["eegnet", "eegnettransformer", "meggpt"]
+        MODELS = ["eegnet", "eegnettransformer", "meggpt", "meggcnet"]
         all_model_results = {model: None for model in MODELS}
         for model_id, model in enumerate(MODELS):
             model_specific_run = copy.deepcopy(run)
@@ -414,7 +415,7 @@ def _process_model(
                 "logger": logger,
             }
         ),
-         "meggpt": (
+        "meggpt": (
             MEGGPT, {
                 "num_electrodes": dataset.get_n_sensors(),
                 "chunk_size": run["window_size"],
@@ -425,6 +426,16 @@ def _process_model(
                 "num_layers": run["model_params"].get("num_layers", 2),
                 "patch_size": run["model_params"].get("patch_size", 8),
                 "dropout": run["model_params"].get("dropout", 0.1),
+            }
+        ),
+        "meggcnet": (
+            MEGGCNet, {
+                "num_nodes": dataset.get_n_sensors(),
+                "in_channels": 1,
+                "num_classes": len(LABEL_MAP),
+                "temporal_kernel_size": run["model_params"].get("temporal_kernel_size", 3),
+                "gamma_learnable": run["model_params"].get("gamma_learnable", True),
+                "dropout": run["model_params"].get("dropout", 0.0),
             }
         ),
     }
