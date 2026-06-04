@@ -90,6 +90,8 @@ def train_cross_validation(
 
     s, e = "-----=====", "=====-----"
     for k in range(k_folds):
+        if pruning_callback is not None:
+            pruning_callback._epoch = 0
         logger.info(f"{s}{'#' * (len(str(k+1)) + len(str(k_folds)) + 10)}{e}")
         logger.info(f"{s}# Fold {k+1}/{k_folds} #{e}")
         logger.info(f"{s}{'#' * (len(str(k+1)) + len(str(k_folds)) + 10)}{e}")

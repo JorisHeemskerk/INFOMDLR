@@ -1,3 +1,4 @@
+import logging
 import torch
 import torch.nn as nn
 
@@ -180,6 +181,7 @@ class MEGGCNet(nn.Module):
 
     def __init__(
         self,
+        logger: logging.Logger,
         num_nodes: int = 248,
         in_channels: int = 1,
         num_classes: int = 4,
@@ -229,6 +231,8 @@ class MEGGCNet(nn.Module):
         # scalar per channel, yielding a 4-dim vector; linear maps to logits.
         self.classifier = nn.Linear(4, num_classes)
 
+        self.logger = logger
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         :param x: Raw MEG input of shape (batch, 1, 248, window_size) or
@@ -255,3 +259,36 @@ class MEGGCNet(nn.Module):
 
         return self.classifier(x)                   # (B, num_classes)
     
+    def save(self, destination: str)-> None:
+        """
+        Save internal state to file.
+
+        :param destination: Directory/file to output model to.
+        :type destination: str
+        """
+        filename = f"{destination}/best_{self.__class__.__name__}.pth"
+        if ".pth" in destination:
+            filename = destination
+        self.logger.info(f"Saving model to {filename}...")
+        torch.save(self, filename)
+
+    @classmethod
+    def load(cls, source: str, logger: logging.Logger)-> "BaseModel":
+        """
+        Load a model from a file.
+
+        :param source: Directory or .pth file to load the model from.
+        :type source: str
+        :param logger: Logger to assign to the loaded model, as it would
+            otherwise load the old logger.
+        :type logger: logging.Logger
+        :return: The loaded model instance.
+        :rtype: LSTM
+        """
+        filename = f"{source}/best_{cls.__name__}.pth"
+        if ".pth" in source:
+            filename = source
+        logger.info(f"Loading model from {filename}...")
+        model = torch.load(filename, weights_only=False)
+        model.logger = logger
+        return model

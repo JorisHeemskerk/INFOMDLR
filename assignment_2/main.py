@@ -32,6 +32,7 @@ from eeg_net_transformer import EEGNetTransformer
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
 from tune import tune_job, OptunaPruningCallback, TUNABLE_PARAMS
+from utils import _set_param, _get_param
 from visualise import \
     visualise_training, \
     visualise_tuning, \
@@ -58,19 +59,6 @@ DATASET_MAPPING = {
     },
 }
 
-
-def _get_param(job, key):
-    """Get a param value list, checking model_params first."""
-    if key in job.get("model_params", {}):
-        return job["model_params"][key]
-    return job[key]
-
-def _set_param(run_description, key, value):
-    """Set a param value, writing to model_params if it lives there."""
-    if key in run_description.get("model_params", {}):
-        run_description["model_params"][key] = value
-    else:
-        run_description[key] = value
 
 def _process_job(
     job: dict[str, Any], 
@@ -402,7 +390,7 @@ def _process_model(
                 "chunk_size": run["window_size"],
                 "num_electrodes": dataset.get_n_sensors(),
                 "num_classes": len(LABEL_MAP),
-                # "dropout": run["model_params"]["dropout"],
+                "dropout": run["model_params"]["dropout"],
                 "logger": logger,
             }
         ),
@@ -436,6 +424,7 @@ def _process_model(
                 "temporal_kernel_size": run["model_params"].get("temporal_kernel_size", 3),
                 "gamma_learnable": run["model_params"].get("gamma_learnable", True),
                 "dropout": run["model_params"].get("dropout", 0.0),
+                "logger": logger,
             }
         ),
     }
