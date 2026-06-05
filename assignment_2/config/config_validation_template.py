@@ -50,7 +50,7 @@ CONFIG_TEMPLATE = {
             'properties': {
                 'num_data_workers': {
                     'type': 'number',
-                    'minimum': 1
+                    'minimum': 0
                 },
                 'ommited_sensors': {
                     'type': 'array',
@@ -79,9 +79,8 @@ CONFIG_TEMPLATE = {
                             'minItems': 1
                         },
                         'stride': {
-                            'type': 'array',
-                            'items': {'type': 'number'},
-                            'minItems': 1
+                            'type': 'number',
+                            'minimum': 1
                         },
                         'downsample_factor': {
                             'type': 'array',

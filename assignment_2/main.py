@@ -210,7 +210,7 @@ def _process_run(
     dataset = MEGDataset(
         data_dirs=DATASET_MAPPING[run["dataset"].lower()]["train"],
         window_size=run["window_size"],
-        stride=run["stride"],
+        stride=run["stride"] if run.get("tune", False) else run["window_size"],
         ommited_sensors=CONFIG["general"]["ommited_sensors"],
         downsample_factor=run["downsample_factor"],
         lazy=run["lazy"],
@@ -270,7 +270,8 @@ def _process_run(
             logger=logger,
             num_workers=CONFIG["general"]["num_data_workers"],
             pin_memory=True, # TODO: check if this should be replaced with run["lazy"]
-            persistent_workers=True
+            persistent_workers=\
+                True if CONFIG["general"]["num_data_workers"] > 0 else False
         )
 
     test_dataloader = to_dataloaders(

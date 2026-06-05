@@ -24,7 +24,6 @@ TUNABLE_PARAMS = {
     "dropout": ("float", False),
     "batch_size": ("int",False),
     "window_size": ("int", False),
-    "stride": ("int", False),
     "downsample_factor": ("int", False),
 }
 
