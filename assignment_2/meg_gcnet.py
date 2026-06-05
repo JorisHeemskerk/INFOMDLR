@@ -2,6 +2,8 @@ import logging
 import torch
 import torch.nn as nn
 
+from base_model import BaseModel
+
 
 class STBlock(nn.Module):
     """
@@ -158,7 +160,7 @@ class STBlock(nn.Module):
         return x
 
 
-class MEGGCNet(nn.Module):
+class MEGGCNet(BaseModel):
     """
     Spatio-temporal graph convolutional network for MEG-based brain state
     classification, adapted from WeatherGCNet (Stańczyk & Mehrkanoon,
@@ -258,37 +260,3 @@ class MEGGCNet(nn.Module):
         x = x.mean(dim=[2, 3])                      # (B, 4)
 
         return self.classifier(x)                   # (B, num_classes)
-    
-    def save(self, destination: str)-> None:
-        """
-        Save internal state to file.
-
-        :param destination: Directory/file to output model to.
-        :type destination: str
-        """
-        filename = f"{destination}/best_{self.__class__.__name__}.pth"
-        if ".pth" in destination:
-            filename = destination
-        self.logger.info(f"Saving model to {filename}...")
-        torch.save(self, filename)
-
-    @classmethod
-    def load(cls, source: str, logger: logging.Logger)-> "BaseModel":
-        """
-        Load a model from a file.
-
-        :param source: Directory or .pth file to load the model from.
-        :type source: str
-        :param logger: Logger to assign to the loaded model, as it would
-            otherwise load the old logger.
-        :type logger: logging.Logger
-        :return: The loaded model instance.
-        :rtype: LSTM
-        """
-        filename = f"{source}/best_{cls.__name__}.pth"
-        if ".pth" in source:
-            filename = source
-        logger.info(f"Loading model from {filename}...")
-        model = torch.load(filename, weights_only=False)
-        model.logger = logger
-        return model
