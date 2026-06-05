@@ -212,7 +212,7 @@ class MEGGCNet(BaseModel):
             Set to 0.0 to disable.
         :type dropout: float
         """
-        super().__init__()
+        super().__init__(logger)
 
         shared = dict(
             num_nodes=num_nodes,
