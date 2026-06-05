@@ -89,6 +89,11 @@ class OptunaPruningCallback:
         self.trial = trial
         self.monitor = monitor
         self._epoch = 0
+        self._losses: dict[int, list[float]] = {}
+
+    def next_fold(self) -> None:
+        """Reset the epoch counter for the next fold."""
+        self._epoch = 0
 
     def __call__(self, val_loss: float)-> None:
         """
@@ -98,12 +103,18 @@ class OptunaPruningCallback:
         :param val_loss: Validation loss of the current epoch.
         :type val_loss: float.
         """
-        self.trial.report(val_loss, step=self._epoch)
+        epoch = self._epoch
+        self._losses.setdefault(epoch, []).append(val_loss)
+
+        avg = sum(self._losses[epoch]) / len(self._losses[epoch])
+        self.trial.report(avg, step=epoch)
         self._epoch += 1
+
         if self.trial.should_prune():
+            n_folds_seen = len(self._losses[epoch])
             raise optuna.TrialPruned(
-                f"Trial pruned at epoch {self._epoch - 1} "
-                f"(val_{self.monitor}={val_loss:.4f})."
+                f"Trial pruned at fold {n_folds_seen}, epoch {epoch} "
+                f"(avg val_{self.monitor}={avg:.4f})."
             )
 
 def tune_job(

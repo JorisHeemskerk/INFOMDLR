@@ -12,17 +12,71 @@ class BaseModel(nn.Module):
         self.logger = logger
         super().__init__(*args, **kwargs)
 
-    def _initialise_weights(self)-> None:
+    def _initialise_weights(self) -> None:
         """
-        Apply kaiming uniform initialization to all layers.
+        Apply appropriate weight initialisation across all layer types:
+        - Linear & Conv layers: Xavier normal for weights, 
+            zeros for biases.
+        - Recurrent layers (LSTM, GRU, RNN): Xavier normal for weights, 
+            zeros for biases.
+        - Normalisation layers (BatchNorm, LayerNorm, etc.): ones for 
+            weights, zeros for biases.
+        - Embedding layers: Standard normal distribution.
+        - MultiheadAttention: Xavier normal for weights, 
+            zeros for biases.
         """
         for module in self.modules():
-            if isinstance(module, (nn.Linear, nn.LSTM)):
+            # Linear & Convolutional 
+            if isinstance(module, (
+                nn.Linear,
+                nn.Conv1d, 
+                nn.Conv2d, 
+                nn.Conv3d,
+                nn.ConvTranspose1d, 
+                nn.ConvTranspose2d, 
+                nn.ConvTranspose3d,
+            )):
+                nn.init.xavier_normal_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+            # Recurrent
+            elif isinstance(module, (nn.LSTM, nn.GRU, nn.RNN)):
                 for name, param in module.named_parameters():
-                    if "bias" in name:
-                        nn.init.zeros_(param)
                     if "weight" in name:
                         nn.init.xavier_normal_(param)
+                    elif "bias" in name:
+                        nn.init.zeros_(param)
+
+            # Normalisation
+            elif isinstance(module, (
+                nn.BatchNorm1d, 
+                nn.BatchNorm2d, 
+                nn.BatchNorm3d,
+                nn.LayerNorm, 
+                nn.GroupNorm,
+                nn.InstanceNorm1d, 
+                nn.InstanceNorm2d, 
+                nn.InstanceNorm3d,
+            )):
+                if module.weight is not None:
+                    nn.init.ones_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+            # Embedding
+            elif isinstance(module, nn.Embedding):
+                nn.init.normal_(module.weight)
+                if module.padding_idx is not None:
+                    nn.init.zeros_(module.weight[module.padding_idx])
+
+            # MultiheadAttention
+            elif isinstance(module, nn.MultiheadAttention):
+                for name, param in module.named_parameters():
+                    if "weight" in name:
+                        nn.init.xavier_normal_(param)
+                    elif "bias" in name:
+                        nn.init.zeros_(param)
 
     def forward(self, x: torch.Tensor)-> torch.Tensor:
         raise NotImplementedError
