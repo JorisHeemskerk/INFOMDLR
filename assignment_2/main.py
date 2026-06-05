@@ -101,7 +101,6 @@ def _process_job(
             f"Running job {job_id}] with bayesian optimisation and hyperband"
             "pruning."
         )
-        job["stride"] = job["window_size"] # Ignore stride when tuning.
         tune_job(
             job=job,
             job_id=job_id,
@@ -202,6 +201,8 @@ def _process_run(
         os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     
     ######################### Save run config. #########################
+    run["stride"] = run["stride"] if run.get("tune", False) else \
+        run["window_size"]
     with open(f'{handle_output.OUTPUT_DIR}run_config.yml', 'w') as outfile:
         yaml.dump(run, outfile)
 
