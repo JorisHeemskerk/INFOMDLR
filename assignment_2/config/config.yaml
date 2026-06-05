@@ -22,7 +22,7 @@ jobs:
         train_val_split: [.8, .2] # Only used if k_folds > 1
         batch_size: [8, 128]
         ### Model ###
-        model: "eegnettransformer" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
+        model: "baseline" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
         model_params: # Contents depend on the model used
             dropout: [0.0, 0.75]
         optimiser: "adam"
