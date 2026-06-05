@@ -9,7 +9,7 @@
 # parameter restrictions.
 
 general:
-    num_data_workers: 1 # Number of workers preparing batches.
+    num_data_workers: 0 # Number of workers preparing batches.
     ommited_sensors: [3, 57, 61, 73, 105, 144, 188, 193, 224, 236] # The sensors excluded from training and testing.
 jobs:
     job0:
@@ -22,7 +22,7 @@ jobs:
         train_val_split: [.8, .2] # Only used if k_folds > 1
         batch_size: [8, 128]
         ### Model ###
-        model: "baseline" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
+        model: "eegnettransformer" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
         model_params: # Contents depend on the model used
             dropout: [0.0, 0.75]
         optimiser: "adam"
