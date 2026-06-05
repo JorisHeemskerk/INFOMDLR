@@ -101,6 +101,7 @@ def _process_job(
             f"Running job {job_id}] with bayesian optimisation and hyperband"
             "pruning."
         )
+        job["stride"] = job["window_size"] # Ignore stride when tuning.
         tune_job(
             job=job,
             job_id=job_id,
@@ -210,7 +211,7 @@ def _process_run(
     dataset = MEGDataset(
         data_dirs=DATASET_MAPPING[run["dataset"].lower()]["train"],
         window_size=run["window_size"],
-        stride=run["stride"] if run.get("tune", False) else run["window_size"],
+        stride=run["stride"],
         ommited_sensors=CONFIG["general"]["ommited_sensors"],
         downsample_factor=run["downsample_factor"],
         lazy=run["lazy"],
