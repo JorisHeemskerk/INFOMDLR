@@ -79,9 +79,9 @@ Execute the entire notebook. There should now be new files in your best_model fo
 ### Step 7: Exporting the results to your report
 Now that have all required results, you can place them in your report.
 
-- Copy over the Parallel Coordinates plot to the appendix, make sure to label it correctly and give it a caption
-- Copy over the training and validation results from the hypertuning to the relevant table in the report
-- Copy over the training and testing results from the notebook to the relevant table in the report
+- Copy over the Parallel Coordinates plot to the appendix, make sure to label it correctly and give it a caption.
+- Copy over the training and validation results from the hypertuning to the relevant table in the report.
+- Copy over the training and testing results from the notebook to the relevant table in the report.
 - Copy over the values of the best found hyperparameters to the relevant table in the report.
 
 ### Step 8: Informing your team
