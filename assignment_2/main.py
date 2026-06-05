@@ -201,6 +201,8 @@ def _process_run(
         os.makedirs(handle_output.OUTPUT_DIR, exist_ok=True)
     
     ######################### Save run config. #########################
+    run["stride"] = run["stride"] if run.get("tune", False) else \
+        run["window_size"]
     with open(f'{handle_output.OUTPUT_DIR}run_config.yml', 'w') as outfile:
         yaml.dump(run, outfile)
 
@@ -210,7 +212,7 @@ def _process_run(
     dataset = MEGDataset(
         data_dirs=DATASET_MAPPING[run["dataset"].lower()]["train"],
         window_size=run["window_size"],
-        stride=run["stride"] if run.get("tune", False) else run["window_size"],
+        stride=run["stride"],
         ommited_sensors=CONFIG["general"]["ommited_sensors"],
         downsample_factor=run["downsample_factor"],
         lazy=run["lazy"],

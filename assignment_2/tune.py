@@ -227,6 +227,7 @@ def tune_job(
         try:
             score = build_run_fn(run, trial.number, logger, trial)
         except optuna.TrialPruned:
+            logger.info(f"Trial {trial.number} was pruned.")
             _log_progress_bar(trial.number, n_trials, start_time, logger)
             raise
         except Exception as e:
