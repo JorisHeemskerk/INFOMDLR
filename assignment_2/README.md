@@ -10,24 +10,24 @@ Below is the config file used for all of the hypertuning runs. The only thing th
         ### Data ###
         dataset: cross # Can be from [intra, cross]
         window_size: [32, 1024]
-        stride: [1, 1024]
-        downsample_factor: [1, 8]
+        stride: 1024 # Replaced by window_size when tune == true
+        downsample_factor: [1, 6]
         lazy: true
         train_val_split: [.8, .2] # Only used if k_folds > 1
         batch_size: [8, 128]
         ### Model ###
-        model: "eegnettransformer" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meg_gcnet, all]
+        model: "baseline" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
         model_params: # Contents depend on the model used
             dropout: [0.0, 0.75]
         optimiser: "adam"
-        learning_rate: [0.00001, 0.1]
-        weight_decay: [0.00001, 0.1]
+        learning_rate: [0.000001, 0.001]
+        weight_decay: [0.000001, 0.001]
         n_epochs: 30
         k_folds: 3  # use 1 to ignore, 3 to fold over people in the cross dataset, and 8 to use 1 file per task for val
         ## Tune ###
         tune: true
         n_trials: 40
-        n_startup_trials: 8
+        n_startup_trials: 7
         min_epochs: 10
         reduction_factor: 3
 ```
