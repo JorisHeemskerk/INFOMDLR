@@ -505,7 +505,9 @@ def _process_model(
                     logger=logger,
                     num_workers=CONFIG["general"]["num_data_workers"],
                     pin_memory=True,
-                    persistent_workers=True,
+                    persistent_workers= \
+                        True if CONFIG["general"]["num_data_workers"] > 0 \
+                        else False,
                 ),
                 **arguments
             )
