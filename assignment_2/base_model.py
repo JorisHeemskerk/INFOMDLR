@@ -27,14 +27,18 @@ class BaseModel(nn.Module):
     def forward(self, x: torch.Tensor)-> torch.Tensor:
         raise NotImplementedError
 
-    def save(self, destination: str)-> None:
+    def save(self, destination: str, prefix: str=None)-> None:
         """
         Save internal state to file.
 
         :param destination: Directory/file to output model to.
         :type destination: str
+        :param prefix: prefix for the filename.
+        :type prefix: str
         """
-        filename = f"{destination}/best_{self.__class__.__name__}.pth"
+        filename = \
+            f"{destination}/{prefix if prefix is not None else ''}" \
+            f"best_{self.__class__.__name__}.pth"
         if ".pth" in destination:
             filename = destination
         self.logger.info(f"Saving model to {filename}...")
