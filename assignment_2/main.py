@@ -32,7 +32,7 @@ from eeg_net_transformer import EEGNetTransformer
 from meg_dataset import MEGDataset, LABEL_MAP
 from train import train_cross_validation, train, evaluate, METRICS
 from tune import tune_job, OptunaPruningCallback, TUNABLE_PARAMS
-from utils import _set_param, _get_param
+from utils import _set_param, _get_param, format_result
 from visualise import \
     visualise_training, \
     visualise_tuning, \
@@ -546,6 +546,22 @@ def _process_model(
         f"validation accuracy: {max(val_metrics["accuracy"])}, achieved during"
         f" epoch {np.argmax(val_metrics["accuracy"]) + 1}."
     )
+
+    best_epoch = np.argmax(val_metrics["accuracy"])
+    Stats = (
+        f"Stats from best validation epoch (epoch={best_epoch + 1}):\nTrain: "
+        f"{format_result(train_metrics, best_epoch, train_metrics_std)} | "
+        f"Val: {format_result(val_metrics, best_epoch, val_metrics_std)}"
+    )
+
+    logger.critical(Stats)
+
+    metrics_path = os.path.join(
+        handle_output.OUTPUT_DIR,
+        "metrics_training.md"
+    )
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        f.write(Stats)
 
     ################# Plot the predicted and real values ###############
     visualise_training(

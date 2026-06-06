@@ -237,8 +237,9 @@ output/*
 *.pth
 output/*/
 */output/*.yaml
-# may god forgive me for this abomination:
+# may god forgive us for this abomination:
 */output/*/*/*/*.md
+*/output/*/*/*.md
 *.yml
 !*/data/.gitkeep
 *.csv
