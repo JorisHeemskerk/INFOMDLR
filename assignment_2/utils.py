@@ -14,4 +14,4 @@ def _set_param(run_description, key, value):
 def format_result(metrics, epoch, metrics_std=None, key="accuracy"):
     mean = metrics[key][epoch]
     std = metrics_std[key][epoch] if metrics_std is not None else None
-    return f"{mean:.5f} ± {std:.5f}" if std is not None else f"{mean:.5f}"
+    return f"{mean} ± {std}" if std is not None else f"{mean}"
