@@ -115,14 +115,23 @@ class MEGGPT(BaseModel):
     :type num_layers: int
     :param patch_size: Number of consecutive timesteps grouped into one
         token (controls sequence length vs. resolution trade-off).
-        Default: 8.
+        Default: 32.
     :type patch_size: int
     :param ffn_dim: Hidden size of the feed-forward sublayer.  Defaults
-        to ``4 × d_model``.
+        to ``2 × d_model``.
     :type ffn_dim: int | None
     :param dropout: Dropout probability used throughout.  Default: 0.1.
     :type dropout: float
+    :param pretrained: If True, attempt to load transformer core weights
+        from the original MEG-GPT TF checkpoint (requires d_model=400,
+        tensorflow, and huggingface_hub).  Default: True.
+    :type pretrained: bool
     """
+
+    # HuggingFace repo id for the original MEG-GPT checkpoint (TF format).
+    _PRETRAINED_REPO = "OHBA-analysis/MEG-GPT"
+    # Expected d_model of the pretrained checkpoint.
+    _PRETRAINED_D_MODEL = 400
 
     def __init__(
         self,
@@ -133,9 +142,10 @@ class MEGGPT(BaseModel):
         d_model: int = 64,
         num_heads: int = 4,
         num_layers: int = 2,
-        patch_size: int = 8,
+        patch_size: int = 32,
         ffn_dim: int | None = None,
         dropout: float = 0.1,
+        pretrained: bool = True,
     ) -> None:
         super().__init__(logger)
 
@@ -190,7 +200,8 @@ class MEGGPT(BaseModel):
         )
 
         # ── 3. Causal Transformer decoder ────────────────────────────────
-        ffn_dim = ffn_dim or d_model * 4
+        # ffn_dim reduced from 4× to 2× d_model — halves FFN parameter count.
+        ffn_dim = ffn_dim or d_model * 2
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=num_heads,
@@ -220,6 +231,216 @@ class MEGGPT(BaseModel):
         )
 
         self._initialise_weights()
+
+        if pretrained:
+            self._load_pretrained_weights()
+
+    # ------------------------------------------------------------------
+    def _load_pretrained_weights(self) -> None:
+        """
+        Download the original MEG-GPT TensorFlow checkpoint from HuggingFace
+        and load the transformer core weights (attention + FFN + layer norms)
+        into this model.
+
+        Requires ``tensorflow`` and ``huggingface_hub`` to be installed.
+        Falls back to random (Xavier) initialisation with a warning when
+        either package is missing or when d_model does not match the
+        pretrained checkpoint's d_model (400).
+
+        Layers loaded   : transformer self-attention projections (Q, K, V,
+                          output), feed-forward dense layers, layer norms.
+        Layers skipped  : ``patch_embed`` (input dim mismatch: 52 parcels vs
+                          this model's sensors), ``head`` (different number
+                          of output classes), positional encoding.
+        """
+        if self.d_model != self._PRETRAINED_D_MODEL:
+            self.logger.warning(
+                f"MEGGPT pretrained: d_model={self.d_model} does not match "
+                f"the checkpoint's d_model={self._PRETRAINED_D_MODEL}. "
+                "Transformer weights cannot be transferred — falling back to "
+                "random initialisation. Set d_model=400 (hidden_size: 400 in "
+                "config) to enable pretrained loading."
+            )
+            return
+
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            self.logger.warning(
+                "MEGGPT pretrained: 'huggingface_hub' is not installed. "
+                "Run 'pip install huggingface_hub' to enable pretrained "
+                "weight loading. Falling back to random initialisation."
+            )
+            return
+
+        try:
+            import tensorflow as tf
+        except ImportError:
+            self.logger.warning(
+                "MEGGPT pretrained: 'tensorflow' is not installed. "
+                "Run 'pip install tensorflow' to enable pretrained weight "
+                "loading. Falling back to random initialisation."
+            )
+            return
+
+        self.logger.info(
+            "MEGGPT pretrained: downloading checkpoint from HuggingFace "
+            f"({self._PRETRAINED_REPO})..."
+        )
+        try:
+            ckpt_index = hf_hub_download(
+                repo_id=self._PRETRAINED_REPO,
+                filename="meg-gpt/checkpoints/ckpt-60.index",
+            )
+            hf_hub_download(
+                repo_id=self._PRETRAINED_REPO,
+                filename="meg-gpt/checkpoints/ckpt-60.data-00000-of-00001",
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"MEGGPT pretrained: failed to download checkpoint ({e}). "
+                "Falling back to random initialisation."
+            )
+            return
+
+        ckpt_path = ckpt_index.replace(".index", "")
+        ckpt_reader = tf.train.load_checkpoint(ckpt_path)
+        tf_vars = ckpt_reader.get_variable_to_shape_map()
+
+        self.logger.debug(
+            "MEGGPT pretrained: TF checkpoint variables:\n"
+            + "\n".join(f"  {k}: {v}" for k, v in sorted(tf_vars.items()))
+        )
+
+        # Build a mapping from PyTorch state dict keys to TF variable names.
+        # The original decoder uses within-channel temporal self-attention
+        # across n_layers=4 stacked TransformerEncoderLayer-equivalent blocks.
+        # TF Keras names follow the pattern set by MultiHeadPASSTALayer and
+        # the surrounding dense/norm layers — inspect the debug log above to
+        # verify these names against the actual checkpoint.
+        def _tf(name: str) -> str | None:
+            """Return the TF variable array or None if the name is absent."""
+            return ckpt_reader.get_tensor(name) if name in tf_vars else None
+
+        loaded, skipped = [], []
+        pt_state = self.state_dict()
+        new_state: dict[str, torch.Tensor] = {}
+
+        for layer_idx in range(len(self.transformer.layers)):
+            prefix_pt = f"transformer.layers.{layer_idx}"
+            # TF Keras indexing: first layer has no suffix, subsequent ones
+            # are indexed starting at 1 (Keras default for list-of-layers).
+            tf_suffix = "" if layer_idx == 0 else f"_{layer_idx}"
+            prefix_tf = (
+                f"meg_gpt/decoder/attention_layers{tf_suffix}"
+            )
+            ff_tf = (
+                f"meg_gpt/decoder/feed_forward_layers{tf_suffix}"
+            )
+            norm1_tf = (
+                f"meg_gpt/decoder/normalization_layers_1{tf_suffix}"
+            )
+            norm2_tf = (
+                f"meg_gpt/decoder/normalization_layers_2{tf_suffix}"
+            )
+
+            # ── Self-attention ──────────────────────────────────────────
+            # TF stores separate Q, K, V kernels; PyTorch packs them into
+            # a single in_proj_weight of shape (3*d_model, d_model).
+            q_w = _tf(f"{prefix_tf}/query/kernel")
+            k_w = _tf(f"{prefix_tf}/key/kernel")
+            v_w = _tf(f"{prefix_tf}/value/kernel")
+            q_b = _tf(f"{prefix_tf}/query/bias")
+            k_b = _tf(f"{prefix_tf}/key/bias")
+            v_b = _tf(f"{prefix_tf}/value/bias")
+            out_w = _tf(f"{prefix_tf}/output/kernel")
+            out_b = _tf(f"{prefix_tf}/output/bias")
+
+            if all(x is not None for x in [q_w, k_w, v_w, out_w]):
+                # TF kernels are (in, out); PyTorch expects (out, in).
+                qkv_w = torch.from_numpy(
+                    __import__("numpy").concatenate(
+                        [q_w.T, k_w.T, v_w.T], axis=0
+                    )
+                ).float()
+                new_state[f"{prefix_pt}.self_attn.in_proj_weight"] = qkv_w
+                loaded.append(f"{prefix_pt}.self_attn.in_proj_weight")
+
+                if all(x is not None for x in [q_b, k_b, v_b]):
+                    qkv_b = torch.from_numpy(
+                        __import__("numpy").concatenate(
+                            [q_b, k_b, v_b], axis=0
+                        )
+                    ).float()
+                    new_state[f"{prefix_pt}.self_attn.in_proj_bias"] = qkv_b
+                    loaded.append(f"{prefix_pt}.self_attn.in_proj_bias")
+
+                new_state[f"{prefix_pt}.self_attn.out_proj.weight"] = (
+                    torch.from_numpy(out_w.T).float()
+                )
+                loaded.append(f"{prefix_pt}.self_attn.out_proj.weight")
+
+                if out_b is not None:
+                    new_state[f"{prefix_pt}.self_attn.out_proj.bias"] = (
+                        torch.from_numpy(out_b).float()
+                    )
+                    loaded.append(f"{prefix_pt}.self_attn.out_proj.bias")
+            else:
+                skipped.append(f"{prefix_pt}.self_attn (weights not found)")
+
+            # ── Feed-forward ────────────────────────────────────────────
+            ff1_w = _tf(f"{ff_tf}/dense/kernel")
+            ff1_b = _tf(f"{ff_tf}/dense/bias")
+            ff2_w = _tf(f"{ff_tf}/dense_1/kernel")
+            ff2_b = _tf(f"{ff_tf}/dense_1/bias")
+
+            if ff1_w is not None:
+                new_state[f"{prefix_pt}.linear1.weight"] = (
+                    torch.from_numpy(ff1_w.T).float()
+                )
+                loaded.append(f"{prefix_pt}.linear1.weight")
+            if ff1_b is not None:
+                new_state[f"{prefix_pt}.linear1.bias"] = (
+                    torch.from_numpy(ff1_b).float()
+                )
+                loaded.append(f"{prefix_pt}.linear1.bias")
+            if ff2_w is not None:
+                new_state[f"{prefix_pt}.linear2.weight"] = (
+                    torch.from_numpy(ff2_w.T).float()
+                )
+                loaded.append(f"{prefix_pt}.linear2.weight")
+            if ff2_b is not None:
+                new_state[f"{prefix_pt}.linear2.bias"] = (
+                    torch.from_numpy(ff2_b).float()
+                )
+                loaded.append(f"{prefix_pt}.linear2.bias")
+
+            # ── Layer norms ──────────────────────────────────────────────
+            for pt_norm, tf_norm in [
+                (f"{prefix_pt}.norm1", norm1_tf),
+                (f"{prefix_pt}.norm2", norm2_tf),
+            ]:
+                g = _tf(f"{tf_norm}/gamma")
+                b = _tf(f"{tf_norm}/beta")
+                if g is not None:
+                    new_state[f"{pt_norm}.weight"] = (
+                        torch.from_numpy(g).float()
+                    )
+                    loaded.append(f"{pt_norm}.weight")
+                if b is not None:
+                    new_state[f"{pt_norm}.bias"] = (
+                        torch.from_numpy(b).float()
+                    )
+                    loaded.append(f"{pt_norm}.bias")
+
+        # Merge: keep existing values for keys not in new_state.
+        pt_state.update(new_state)
+        self.load_state_dict(pt_state, strict=False)
+
+        self.logger.info(
+            f"MEGGPT pretrained: loaded {len(loaded)} parameter tensors "
+            f"from checkpoint. Skipped (random init): {skipped or ['none']}."
+        )
 
     # ------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
