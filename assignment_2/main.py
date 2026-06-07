@@ -424,9 +424,8 @@ def _process_model(
                 "num_nodes": dataset.get_n_sensors(),
                 "in_channels": 1,
                 "num_classes": len(LABEL_MAP),
-                "temporal_kernel_size": run["model_params"].get("temporal_kernel_size", 3),
-                "gamma_learnable": run["model_params"].get("gamma_learnable", True),
-                "dropout": run["model_params"].get("dropout", 0.0),
+                # "temporal_kernel_size": run["model_params"].get("temporal_kernel_size", 3),
+                "dropout": run["model_params"]["dropout"],
                 "logger": logger,
             }
         ),
