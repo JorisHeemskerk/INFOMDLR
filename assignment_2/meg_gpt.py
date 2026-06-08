@@ -126,6 +126,13 @@ class MEGGPT(BaseModel):
         from the original MEG-GPT TF checkpoint (requires d_model=400,
         tensorflow, and huggingface_hub).  Default: True.
     :type pretrained: bool
+    :param freeze_backbone: If True *and* pretrained weights were
+        successfully loaded, freeze the Transformer core
+        (``requires_grad=False``) so only ``patch_embed`` and ``head`` are
+        fine-tuned. Ignored — with a warning — when no pretrained weights
+        could be loaded, since freezing a randomly-initialised backbone
+        would prevent the model from ever learning.  Default: True.
+    :type freeze_backbone: bool
     """
 
     # HuggingFace repo id for the original MEG-GPT checkpoint (TF format).
@@ -146,6 +153,7 @@ class MEGGPT(BaseModel):
         ffn_dim: int | None = None,
         dropout: float = 0.1,
         pretrained: bool = True,
+        freeze_backbone: bool = True,
     ) -> None:
         super().__init__(logger)
 
@@ -232,11 +240,23 @@ class MEGGPT(BaseModel):
 
         self._initialise_weights()
 
+        pretrained_loaded = False
         if pretrained:
-            self._load_pretrained_weights()
+            pretrained_loaded = self._load_pretrained_weights()
+
+        if freeze_backbone:
+            if pretrained_loaded:
+                self._freeze_backbone()
+            else:
+                logger.warning(
+                    "MEGGPT: freeze_backbone=True but no pretrained weights "
+                    "were loaded — refusing to freeze randomly-initialised "
+                    "layers (the model would never learn). Backbone left "
+                    "trainable."
+                )
 
     # ------------------------------------------------------------------
-    def _load_pretrained_weights(self) -> None:
+    def _load_pretrained_weights(self) -> bool:
         """
         Download the original MEG-GPT TensorFlow checkpoint from HuggingFace
         and load the transformer core weights (attention + FFN + layer norms)
@@ -252,6 +272,11 @@ class MEGGPT(BaseModel):
         Layers skipped  : ``patch_embed`` (input dim mismatch: 52 parcels vs
                           this model's sensors), ``head`` (different number
                           of output classes), positional encoding.
+
+        :returns: ``True`` if checkpoint weights were found and loaded into
+            the transformer core, ``False`` if anything was missing and the
+            model was left at its random initialisation.
+        :rtype: bool
         """
         if self.d_model != self._PRETRAINED_D_MODEL:
             self.logger.warning(
@@ -261,7 +286,7 @@ class MEGGPT(BaseModel):
                 "random initialisation. Set d_model=400 (hidden_size: 400 in "
                 "config) to enable pretrained loading."
             )
-            return
+            return False
 
         try:
             from huggingface_hub import hf_hub_download
@@ -271,7 +296,7 @@ class MEGGPT(BaseModel):
                 "Run 'pip install huggingface_hub' to enable pretrained "
                 "weight loading. Falling back to random initialisation."
             )
-            return
+            return False
 
         try:
             import tensorflow as tf
@@ -281,7 +306,7 @@ class MEGGPT(BaseModel):
                 "Run 'pip install tensorflow' to enable pretrained weight "
                 "loading. Falling back to random initialisation."
             )
-            return
+            return False
 
         self.logger.info(
             "MEGGPT pretrained: downloading checkpoint from HuggingFace "
@@ -301,7 +326,7 @@ class MEGGPT(BaseModel):
                 f"MEGGPT pretrained: failed to download checkpoint ({e}). "
                 "Falling back to random initialisation."
             )
-            return
+            return False
 
         ckpt_path = ckpt_index.replace(".index", "")
         ckpt_reader = tf.train.load_checkpoint(ckpt_path)
@@ -440,6 +465,30 @@ class MEGGPT(BaseModel):
         self.logger.info(
             f"MEGGPT pretrained: loaded {len(loaded)} parameter tensors "
             f"from checkpoint. Skipped (random init): {skipped or ['none']}."
+        )
+        return True
+
+    # ------------------------------------------------------------------
+    def _freeze_backbone(self) -> None:
+        """
+        Freeze the pretrained Transformer core so that only the
+        (randomly-initialised) ``patch_embed`` and ``head`` layers are
+        updated during fine-tuning.
+
+        Sets ``requires_grad = False`` on every parameter of
+        ``self.transformer``. The optimiser is built from
+        ``model.parameters()`` and Adam-style optimisers skip any parameter
+        whose ``.grad`` stays ``None`` (i.e. ``requires_grad=False``), so no
+        changes to the training loop are required.
+        """
+        n_frozen = 0
+        for param in self.transformer.parameters():
+            param.requires_grad = False
+            n_frozen += param.numel()
+
+        self.logger.info(
+            f"MEGGPT: froze transformer backbone ({n_frozen:,} parameters). "
+            "Only patch_embed and head remain trainable."
         )
 
     # ------------------------------------------------------------------
