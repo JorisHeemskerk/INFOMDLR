@@ -139,22 +139,19 @@ class MEGGCNet(BaseModel):
         num_nodes: int = 248,
         in_channels: int = 1,
         num_classes: int = 4,
-        window_size: int = 512,
         dropout: float = 0.0,
         temporal_kernel_size: int = 3,
         num_blocks: int = 3,
     ):
         super(MEGGCNet, self).__init__(logger)
 
-        self.window_size = window_size  # stored for API consistency with other models;
-                                        # does not affect architecture because global
-                                        # average pooling is used instead of a fixed FC.
 
         self.data_bn = nn.BatchNorm1d(in_channels * num_nodes)
 
         # Channel progression: 16, 32, 64, 128, ... — doubles with each block.
-        # conv_reduce_dim always reads from the final block's output channels.
-        channels = [16 * (2 ** i) for i in range(num_blocks)]
+        # conv_reduce_dim always readss from the final block's output channels.
+        # Edit: changed it to 8, 16, 32
+        channels = [8 * (2 ** i) for i in range(num_blocks)]
 
         block_kwargs = dict(
             num_nodes=num_nodes,
@@ -170,7 +167,8 @@ class MEGGCNet(BaseModel):
         # block. This reduces the cost of subsequent GCN matmuls, which scale
         # with C*T (e.g. T=512 → 256 → 128 across the three default blocks).
         # Requires window_size to be divisible by 2^(num_blocks-1).
-        self.temporal_pool = nn.AvgPool2d(kernel_size=(2, 1), stride=(2, 1))
+        # Edit: changed to 4
+        self.temporal_pool = nn.AvgPool2d(kernel_size=(4, 1), stride=(4, 1))
 
         self.conv_reduce_dim = unit_tcn(channels[-1], 4, kernel_size=1, stride=1)
 
