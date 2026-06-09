@@ -415,7 +415,7 @@ def _process_model(
                 "d_model": run["model_params"].get("hidden_size", 64),
                 "num_heads": run["model_params"].get("num_heads", 4),
                 "num_layers": run["model_params"].get("num_layers", 2),
-                "patch_size": run["model_params"].get("patch_size", 32),
+                "patch_size": run["window_size"],  # 1 token per sensor regardless of window size
                 "dropout": run["model_params"].get("dropout", 0.1),
             }
         ),
