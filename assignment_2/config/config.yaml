@@ -15,56 +15,56 @@ jobs:
     job0:
         ### Data ###
         dataset: intra # Can be from [intra, cross]
-        window_size: [32, 1024]
-        stride: 1024 # Replaced by window_size when tune == true
-        downsample_factor: [1, 6]
+        window_size: 256        # fixed: patch_size must equal window_size for 1-token-per-sensor
+        stride: 256
+        downsample_factor: 4    # fixed: reduces chunk to 64 timesteps before patching
         lazy: true
         train_val_split: [.8, .2] # Only used if k_folds > 1
-        batch_size: [8, 128]
+        batch_size: [8, 64]
         ### Model ###
         model: "meggpt" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
         model_params:
-            dropout: [0.0, 0.75]
+            dropout: [0.0, 0.5]
             hidden_size: 400   # Must be 400 to match pretrained checkpoint d_model
             num_heads: 4
             num_layers: 4
-            patch_size: 32
+            patch_size: 64     # equals downsampled window (256/4=64) → 1 token per sensor, seq_len=238
         optimiser: "adam"
         learning_rate: [0.000001, 0.001]
         weight_decay: [0.000001, 0.001]
-        n_epochs: 30
+        n_epochs: 20
         k_folds: 3  # use 1 to ignore, 3 to fold over people in the cross dataset, and 8 to use 1 file per task for val
         ## Tune ###
         tune: true
-        n_trials: 40
-        n_startup_trials: 7
-        min_epochs: 10
+        n_trials: 20
+        n_startup_trials: 5
+        min_epochs: 5
         reduction_factor: 3
     job1:
         ### Data ###
         dataset: cross # Can be from [intra, cross]
-        window_size: [32, 1024]
-        stride: 1024 # Replaced by window_size when tune == true
-        downsample_factor: [1, 6]
+        window_size: 256        # fixed: patch_size must equal window_size for 1-token-per-sensor
+        stride: 256
+        downsample_factor: 4    # fixed: reduces chunk to 64 timesteps before patching
         lazy: true
         train_val_split: [.8, .2] # Only used if k_folds > 1
-        batch_size: [8, 128]
+        batch_size: [8, 64]
         ### Model ###
         model: "meggpt" # Can be from: [baseline, eegnet, eegnettransformer, meggpt, meggcnet, all]
         model_params:
-            dropout: [0.0, 0.75]
+            dropout: [0.0, 0.5]
             hidden_size: 400   # Must be 400 to match pretrained checkpoint d_model
             num_heads: 4
             num_layers: 4
-            patch_size: 32
+            patch_size: 64     # equals downsampled window (256/4=64) → 1 token per sensor, seq_len=238
         optimiser: "adam"
         learning_rate: [0.000001, 0.001]
         weight_decay: [0.000001, 0.001]
-        n_epochs: 30
+        n_epochs: 20
         k_folds: 3  # use 1 to ignore, 3 to fold over people in the cross dataset, and 8 to use 1 file per task for val
         ## Tune ###
         tune: true
-        n_trials: 40
-        n_startup_trials: 7
-        min_epochs: 10
+        n_trials: 20
+        n_startup_trials: 5
+        min_epochs: 5
         reduction_factor: 3
